@@ -9,7 +9,7 @@ const navItems = [
   { to: '/workouts', icon: Dumbbell, label: 'Workouts' },
   { to: '/plans', icon: CalendarDays, label: 'Plans' },
   { to: '/history', icon: History, label: 'History' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/import-export', icon: Settings, label: 'Import/Export' },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
