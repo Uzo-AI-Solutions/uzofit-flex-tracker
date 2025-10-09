@@ -5,7 +5,7 @@ import { Layout } from '@/components/Layout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { Dumbbell, Play, TrendingUp, CalendarDays } from 'lucide-react';
+import { Dumbbell, Play, TrendingUp, CalendarDays, Bot } from 'lucide-react';
 
 export default function Dashboard() {
   const { data: activePlan } = useQuery({
@@ -80,6 +80,26 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
+          <Card className="border-accent/20 bg-gradient-to-br from-accent/10 to-accent/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-accent" />
+                AI Trainer
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-3">
+                Get personalized workout plans and training advice
+              </p>
+              <Link to="/trainer">
+                <Button className="w-full gap-2">
+                  <Bot className="h-4 w-4" />
+                  Chat with AI Trainer
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -92,19 +112,6 @@ export default function Dashboard() {
               <p className="text-sm text-muted-foreground">sessions this week</p>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CalendarDays className="h-5 w-5 text-accent" />
-                Today
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{today}</div>
-              <p className="text-sm text-muted-foreground">Ready to train?</p>
-            </CardContent>
-          </Card>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -114,6 +121,12 @@ export default function Dashboard() {
               <CardDescription>Get started with your training</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
+              <Link to="/trainer">
+                <Button variant="outline" className="w-full justify-start gap-2">
+                  <Bot className="h-4 w-4" />
+                  AI Trainer
+                </Button>
+              </Link>
               <Link to="/workouts">
                 <Button variant="outline" className="w-full justify-start gap-2">
                   <Dumbbell className="h-4 w-4" />
