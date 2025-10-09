@@ -2,18 +2,23 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { queryKeys } from '@/lib/queryKeys';
-import { DAYS_OF_WEEK, DayOfWeek } from '@/lib/types';
+import { DAYS_OF_WEEK, DayOfWeek, GROUP_TYPE_LABELS } from '@/lib/types';
 import { Layout } from '@/components/Layout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Calendar, PlayCircle, Dumbbell } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useState } from 'react';
 
 export default function PlanDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  
+  const today = new Date();
+  const todayDow = DAYS_OF_WEEK[today.getDay() === 0 ? 6 : today.getDay() - 1] as DayOfWeek;
+  const [selectedDay, setSelectedDay] = useState<DayOfWeek>(todayDow);
 
   const { data: plan, isLoading } = useQuery({
     queryKey: queryKeys.plans.one(id!),
@@ -44,6 +49,35 @@ export default function PlanDetail() {
       return data;
     },
     enabled: !!id,
+  });
+
+  const { data: selectedDayWorkout } = useQuery({
+    queryKey: ['workout-day', plan?.workout_id, selectedDay],
+    queryFn: async () => {
+      if (!plan) return null;
+      
+      const workoutDay = plan.workouts.workout_days?.find(d => d.dow === selectedDay);
+      if (!workoutDay) return null;
+
+      const { data, error } = await supabase
+        .from('workout_days')
+        .select(`
+          *,
+          workout_groups (
+            *,
+            workout_items (
+              *,
+              exercises (name)
+            )
+          )
+        `)
+        .eq('id', workoutDay.id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!plan,
   });
 
   const startSessionMutation = useMutation({
@@ -165,9 +199,8 @@ export default function PlanDetail() {
 
   const endDate = new Date(plan.start_date);
   endDate.setDate(endDate.getDate() + plan.duration_weeks * 7);
-  const today = new Date();
-  const todayDow = DAYS_OF_WEEK[today.getDay() === 0 ? 6 : today.getDay() - 1] as DayOfWeek;
   const hasWorkoutToday = plan.workouts.workout_days?.some(d => d.dow === todayDow);
+  const hasSelectedDayWorkout = plan.workouts.workout_days?.some(d => d.dow === selectedDay);
 
   return (
     <Layout>
@@ -263,22 +296,66 @@ export default function PlanDetail() {
             <div className="grid grid-cols-7 gap-2">
               {DAYS_OF_WEEK.map(day => {
                 const hasWorkout = plan.workouts.workout_days?.some(d => d.dow === day);
+                const isSelected = day === selectedDay;
+                const isToday = day === todayDow;
                 return (
-                  <div
+                  <Button
                     key={day}
-                    className={`p-3 rounded-lg text-center ${
-                      hasWorkout
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground'
-                    }`}
+                    variant={hasWorkout ? (isSelected ? 'default' : 'secondary') : 'ghost'}
+                    className={`p-3 h-auto ${!hasWorkout && 'cursor-default opacity-50'} ${isToday && 'ring-2 ring-ring ring-offset-2'}`}
+                    onClick={() => hasWorkout && setSelectedDay(day)}
+                    disabled={!hasWorkout}
                   >
                     <p className="text-xs font-medium">{day}</p>
-                  </div>
+                  </Button>
                 );
               })}
             </div>
           </CardContent>
         </Card>
+
+        {hasSelectedDayWorkout && selectedDayWorkout && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{selectedDay} Workout</CardTitle>
+              <CardDescription>
+                {selectedDayWorkout.workout_groups?.length || 0} group(s)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {selectedDayWorkout.workout_groups?.map((group: any) => (
+                <Card key={group.id}>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">{group.name}</CardTitle>
+                      <Badge variant="outline">{GROUP_TYPE_LABELS[group.group_type as keyof typeof GROUP_TYPE_LABELS]}</Badge>
+                    </div>
+                    {group.rest_seconds && (
+                      <CardDescription>Rest: {group.rest_seconds}s between sets</CardDescription>
+                    )}
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {group.workout_items?.map((item: any) => (
+                      <div key={item.id} className="flex items-start justify-between border-l-2 border-primary pl-3">
+                        <div className="flex-1">
+                          <p className="font-medium">{item.exercises.name}</p>
+                          <div className="flex gap-4 text-sm text-muted-foreground mt-1">
+                            {item.target_sets && <span>{item.target_sets} sets</span>}
+                            {item.target_reps && <span>{item.target_reps} reps</span>}
+                            {item.target_weight && <span>{item.target_weight} lbs</span>}
+                          </div>
+                          {item.notes && (
+                            <p className="text-sm text-muted-foreground mt-1">{item.notes}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              ))}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </Layout>
   );
