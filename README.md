@@ -128,6 +128,68 @@ A comprehensive workout tracking application built for serious lifters who want 
 3. Click **Import Workout**
 4. Workout appears in your library (with " (Imported)" suffix)
 
+**JSON Format Structure:**
+
+The JSON must follow this exact structure. Required fields are marked with `*`:
+
+```json
+{
+  "name": "Your Workout Name*",
+  "summary": "Workout description (optional)",
+  "workout_days": [
+    {
+      "dow": "Mon|Tue|Wed|Thu|Fri|Sat|Sun*",
+      "position": 1,
+      "workout_groups": [
+        {
+          "name": "Group Name*",
+          "group_type": "single|superset|triset|circuit*",
+          "rest_seconds": 90,
+          "position": 1,
+          "workout_items": [
+            {
+              "position": 1,
+              "target_sets": 3,
+              "target_reps": 10,
+              "target_weight": 135.0,
+              "rest_seconds_override": null,
+              "notes": "Optional notes",
+              "exercises": {
+                "name": "Exercise Name*",
+                "category": "strength*",
+                "instructions": "Form cues (optional)"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Field Definitions:**
+- `name`: Workout program name (text)
+- `summary`: Brief workout description (text, optional)
+- `dow`: Day of week (enum: Mon, Tue, Wed, Thu, Fri, Sat, Sun)
+- `position`: Order of items (integer, starts at 1)
+- `group_type`: Exercise grouping (enum: single, superset, triset, circuit)
+- `rest_seconds`: Rest time between groups (integer, seconds)
+- `target_sets`: Target number of sets (integer)
+- `target_reps`: Target repetitions (integer)
+- `target_weight`: Target weight in lbs (decimal number)
+- `rest_seconds_override`: Custom rest for specific exercise (integer, optional)
+- `notes`: Exercise-specific notes (text, optional)
+- `category`: Exercise type (text, default: "strength")
+- `instructions`: Form cues and technique notes (text, optional)
+
+**Import Notes:**
+- The importer automatically creates exercises if they don't exist
+- Existing exercises (matched by name) will be reused
+- All UUID fields (id, workout_id, etc.) are auto-generated - don't include them
+- Timestamp fields (created_at, updated_at) are auto-generated - don't include them
+- The workout name will have " (Imported)" appended automatically
+
 ## 🛠️ Technical Stack
 
 - **Frontend**: React 18, TypeScript, Vite
