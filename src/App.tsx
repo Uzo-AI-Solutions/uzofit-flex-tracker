@@ -17,6 +17,7 @@ import SessionActive from "./pages/SessionActive";
 import SessionDetail from "./pages/SessionDetail";
 import History from "./pages/History";
 import ImportExport from "./pages/ImportExport";
+import Trainer from "./pages/Trainer";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
@@ -42,6 +43,7 @@ const App = () => (
           <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
           <Route path="/history/:id" element={<ProtectedRoute><SessionDetail /></ProtectedRoute>} />
           <Route path="/import-export" element={<ProtectedRoute><ImportExport /></ProtectedRoute>} />
+          <Route path="/trainer" element={<ProtectedRoute><Trainer /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
