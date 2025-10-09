@@ -12,7 +12,8 @@ serve(async (req) => {
   }
 
   try {
-    const { messages, action } = await req.json();
+    const requestBody = await req.json();
+    const { messages, action, tool_name, tool_arguments } = requestBody;
     
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -187,7 +188,6 @@ Use the provided tools to interact with the database.`;
 
     // Handle tool execution
     if (action === 'execute_tool') {
-      const { tool_name, tool_arguments } = await req.json();
       
       if (tool_name === 'get_workout_history') {
         const limit = tool_arguments.limit || 10;
