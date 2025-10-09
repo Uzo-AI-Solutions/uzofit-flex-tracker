@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Dumbbell, LayoutDashboard, CalendarDays, History, Settings, LogOut } from 'lucide-react';
+import { Dumbbell, LayoutDashboard, CalendarDays, History, Settings, LogOut, Bot, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -9,7 +9,8 @@ const navItems = [
   { to: '/workouts', icon: Dumbbell, label: 'Workouts' },
   { to: '/plans', icon: CalendarDays, label: 'Plans' },
   { to: '/history', icon: History, label: 'History' },
-  { to: '/import-export', icon: Settings, label: 'Import/Export' },
+  { to: '/trainer', icon: Bot, label: 'AI Trainer' },
+  { to: '/import-export', icon: Download, label: 'Import/Export' },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
