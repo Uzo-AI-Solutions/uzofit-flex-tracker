@@ -120,17 +120,18 @@ export default function Trainer() {
       }
 
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error details:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       toast({
         title: 'Error',
-        description: 'Failed to communicate with trainer. Please try again.',
+        description: errorMessage,
         variant: 'destructive',
       });
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          content: "Sorry, I encountered an error. Please try again."
+          content: `Sorry, I encountered an error: ${errorMessage}. Please try again.`
         }
       ]);
     } finally {
