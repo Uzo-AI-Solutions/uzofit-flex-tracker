@@ -1,1 +1,7 @@
 project_id = "koiiiqlcmevfbsmqzugm"
+
+[functions.personal-trainer]
+verify_jwt = true
+
+[functions.ai-trainer]
+verify_jwt = true
