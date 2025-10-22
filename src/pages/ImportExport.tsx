@@ -9,9 +9,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Download, Upload } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function ImportExport() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [exportWorkoutId, setExportWorkoutId] = useState('');
   const [importJson, setImportJson] = useState('');
 
@@ -69,12 +71,15 @@ export default function ImportExport() {
     mutationFn: async () => {
       const data = JSON.parse(importJson);
       
+      if (!user) throw new Error('User not authenticated');
+      
       // Create workout
       const { data: workout, error: workoutError } = await supabase
         .from('workouts')
         .insert({
           name: `${data.name} (Imported)`,
           summary: data.summary,
+          user_id: user.id,
         })
         .select()
         .single();
@@ -129,6 +134,7 @@ export default function ImportExport() {
                     name: item.exercises.name,
                     category: item.exercises.category,
                     instructions: item.exercises.instructions,
+                    user_id: user.id,
                   })
                   .select()
                   .single();

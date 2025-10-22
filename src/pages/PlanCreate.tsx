@@ -11,10 +11,12 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArrowLeft } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function PlanCreate() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [name, setName] = useState('');
   const [workoutId, setWorkoutId] = useState('');
   const [durationWeeks, setDurationWeeks] = useState(4);
@@ -37,6 +39,8 @@ export default function PlanCreate() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      if (!user) throw new Error('User not authenticated');
+      
       // If activating, deactivate all other plans first
       if (isActive) {
         await supabase
@@ -53,6 +57,7 @@ export default function PlanCreate() {
           duration_weeks: durationWeeks,
           start_date: startDate,
           is_active: isActive,
+          user_id: user.id,
         })
         .select()
         .single();

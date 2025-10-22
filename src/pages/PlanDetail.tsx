@@ -10,11 +10,13 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Calendar, PlayCircle, Dumbbell } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function PlanDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   
   const today = new Date();
   const todayDow = DAYS_OF_WEEK[today.getDay() === 0 ? 6 : today.getDay() - 1] as DayOfWeek;
@@ -82,6 +84,8 @@ export default function PlanDetail() {
 
   const startSessionMutation = useMutation({
     mutationFn: async () => {
+      if (!user) throw new Error('User not authenticated');
+      
       const today = new Date();
       const todayDow = DAYS_OF_WEEK[today.getDay() === 0 ? 6 : today.getDay() - 1] as DayOfWeek;
       
@@ -118,6 +122,7 @@ export default function PlanDetail() {
           workout_id: plan.workout_id,
           day_dow: todayDow,
           started_at: today.toISOString(),
+          user_id: user.id,
         })
         .select()
         .single();

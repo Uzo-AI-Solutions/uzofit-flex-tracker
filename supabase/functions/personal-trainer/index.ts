@@ -387,6 +387,7 @@ Use the provided tools to interact with the database.`;
               )
             )
           `)
+          .eq('user_id', userId)
           .is('deleted_at', null);
         
         if (workoutId) {

@@ -11,18 +11,22 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function WorkoutCreate() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const [name, setName] = useState('');
   const [summary, setSummary] = useState('');
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      if (!user) throw new Error('User not authenticated');
+      
       const { data, error } = await supabase
         .from('workouts')
-        .insert({ name, summary })
+        .insert({ name, summary, user_id: user.id })
         .select()
         .single();
       

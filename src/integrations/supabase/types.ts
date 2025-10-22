@@ -60,6 +60,7 @@ export type Database = {
           instructions: string | null
           name: string
           updated_at: string
+          user_id: string
         }
         Insert: {
           category?: string
@@ -68,6 +69,7 @@ export type Database = {
           instructions?: string | null
           name: string
           updated_at?: string
+          user_id: string
         }
         Update: {
           category?: string
@@ -76,6 +78,7 @@ export type Database = {
           instructions?: string | null
           name?: string
           updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -88,6 +91,7 @@ export type Database = {
           name: string
           start_date: string
           updated_at: string
+          user_id: string
           workout_id: string
         }
         Insert: {
@@ -98,6 +102,7 @@ export type Database = {
           name: string
           start_date?: string
           updated_at?: string
+          user_id: string
           workout_id: string
         }
         Update: {
@@ -108,6 +113,7 @@ export type Database = {
           name?: string
           start_date?: string
           updated_at?: string
+          user_id?: string
           workout_id?: string
         }
         Relationships: [
@@ -215,6 +221,7 @@ export type Database = {
           title: string
           total_volume: number | null
           updated_at: string
+          user_id: string
           workout_id: string
         }
         Insert: {
@@ -226,6 +233,7 @@ export type Database = {
           title: string
           total_volume?: number | null
           updated_at?: string
+          user_id: string
           workout_id: string
         }
         Update: {
@@ -237,6 +245,7 @@ export type Database = {
           title?: string
           total_volume?: number | null
           updated_at?: string
+          user_id?: string
           workout_id?: string
         }
         Relationships: [
@@ -420,6 +429,7 @@ export type Database = {
           name: string
           summary: string | null
           updated_at: string
+          user_id: string
         }
         Insert: {
           deleted_at?: string | null
@@ -427,6 +437,7 @@ export type Database = {
           name: string
           summary?: string | null
           updated_at?: string
+          user_id: string
         }
         Update: {
           deleted_at?: string | null
@@ -434,6 +445,7 @@ export type Database = {
           name?: string
           summary?: string | null
           updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
