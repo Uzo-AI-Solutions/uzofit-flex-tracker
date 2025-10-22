@@ -16,7 +16,7 @@ export default function Trainer() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: "Hey! I'm your UzoFit AI trainer. I can help you create custom workout programs, analyze your training history, or log workouts you've completed. What would you like to work on today?"
+      content: "Hey! I'm your UzoFit AI trainer with complete access to your fitness data. I can:\n\n• View and edit your workout programs\n• Manage your training plans\n• Analyze your workout history and progress\n• Log new sessions\n• Provide personalized recommendations\n\nWhat would you like to work on today?"
     }
   ]);
   const [input, setInput] = useState('');
@@ -147,9 +147,11 @@ export default function Trainer() {
   };
 
   const quickActions = [
-    "Create a 4-day upper/lower split for strength",
-    "Show me my workout history",
-    "I just did bench press 3x8 at 185lbs, log it"
+    "Show me all my workouts",
+    "What are my active training plans?",
+    "Give me recommendations based on my progress",
+    "Create a new 4-day upper/lower split",
+    "Show my workout history from the last month"
   ];
 
   return (
@@ -164,7 +166,7 @@ export default function Trainer() {
             <div>
               <h1 className="text-2xl font-bold">AI Personal Trainer</h1>
               <p className="text-sm text-muted-foreground">
-                Create workouts, analyze history, and log sessions
+                Full access to your workouts, plans, history, and personalized recommendations
               </p>
             </div>
           </div>
@@ -232,7 +234,7 @@ export default function Trainer() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder="Ask me to create a workout, review your history, or log a session..."
+              placeholder="Ask me anything about your workouts, plans, history, or get recommendations..."
               className="resize-none"
               rows={2}
               disabled={isLoading}

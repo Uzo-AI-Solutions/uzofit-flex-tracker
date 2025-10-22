@@ -21,19 +21,47 @@ serve(async (req) => {
     
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // System prompt for the personal trainer
-    const systemPrompt = `You are UzoFit AI, a professional personal trainer assistant. You help users create workout programs and log their training sessions.
+    // Get authorization header to identify user
+    const authHeader = req.headers.get('Authorization');
+    let userId = null;
+    
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user } } = await supabase.auth.getUser(token);
+      userId = user?.id;
+    }
 
-Your capabilities:
-1. Create custom workout programs based on user goals, experience level, and preferences
-2. Analyze user's workout history to suggest improvements or variations
-3. Log completed workout sessions when users tell you what they did
+    // Load custom system instructions if available
+    let customInstructions = '';
+    if (userId) {
+      const { data: settings } = await supabase
+        .from('user_settings')
+        .select('system_instructions')
+        .eq('user_id', userId)
+        .maybeSingle();
+      
+      customInstructions = settings?.system_instructions || '';
+    }
+
+    // Base system prompt for the personal trainer
+    const basePrompt = `You are UzoFit AI, a professional personal trainer assistant. You have full access to the user's fitness data and can help with:
+
+1. Creating and editing custom workout programs
+2. Setting up and managing training plans
+3. Analyzing workout history and progress
+4. Logging completed workout sessions
+5. Making personalized recommendations based on their data
 
 Workout Structure:
 - Workouts contain multiple training days (Mon-Sun)
 - Each day has workout groups (single exercises, supersets, trisets, or circuits)
 - Each group contains workout items (exercises) with target sets, reps, and weight
 - Rest periods are set at the group level (default) or can be overridden per exercise
+
+Plans:
+- Plans link workouts to a schedule with start date and duration
+- Users can have active plans to follow
+- You can create, update, and manage their training plans
 
 Exercise Categories: strength, cardio, flexibility, sports
 
@@ -44,11 +72,17 @@ When creating workouts:
 - Balance muscle groups across the week
 - Use proper exercise selection for the goals
 
-When logging sessions:
-- Get workout name, date/time, and all exercises performed with sets/reps/weight
-- Calculate total volume (sets × reps × weight)
+When making recommendations:
+- Analyze their workout history and plans
+- Suggest progressive overload strategies
+- Recommend exercise variations
+- Consider recovery and training frequency
 
 Use the provided tools to interact with the database.`;
+
+    const systemPrompt = customInstructions 
+      ? `${basePrompt}\n\nAdditional Instructions:\n${customInstructions}`
+      : basePrompt;
 
     // Define tools for function calling
     const tools = [
@@ -56,13 +90,110 @@ Use the provided tools to interact with the database.`;
         type: "function",
         function: {
           name: "get_workout_history",
-          description: "Retrieve the user's workout history and existing workout programs",
+          description: "Retrieve the user's workout session history",
           parameters: {
             type: "object",
             properties: {
               limit: {
                 type: "number",
                 description: "Number of recent sessions to retrieve (default 10)"
+              }
+            }
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "get_workouts",
+          description: "Get all workout programs with full details including days, groups, and exercises",
+          parameters: {
+            type: "object",
+            properties: {
+              workout_id: {
+                type: "string",
+                description: "Optional: Specific workout ID to get details for"
+              }
+            }
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "update_workout",
+          description: "Update an existing workout program",
+          parameters: {
+            type: "object",
+            properties: {
+              workout_id: { type: "string", description: "ID of workout to update" },
+              name: { type: "string", description: "New workout name" },
+              summary: { type: "string", description: "New workout summary" }
+            },
+            required: ["workout_id"]
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "get_plans",
+          description: "Get all training plans with associated workout details",
+          parameters: {
+            type: "object",
+            properties: {
+              active_only: {
+                type: "boolean",
+                description: "Only return active plans"
+              }
+            }
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "create_plan",
+          description: "Create a new training plan from an existing workout",
+          parameters: {
+            type: "object",
+            properties: {
+              name: { type: "string", description: "Plan name" },
+              workout_id: { type: "string", description: "ID of workout to use" },
+              start_date: { type: "string", description: "Start date (YYYY-MM-DD)" },
+              duration_weeks: { type: "number", description: "Duration in weeks" }
+            },
+            required: ["name", "workout_id", "start_date", "duration_weeks"]
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "update_plan",
+          description: "Update or activate/deactivate a training plan",
+          parameters: {
+            type: "object",
+            properties: {
+              plan_id: { type: "string", description: "ID of plan to update" },
+              is_active: { type: "boolean", description: "Set plan active status" },
+              name: { type: "string", description: "New plan name" }
+            },
+            required: ["plan_id"]
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "get_recommendations",
+          description: "Analyze user's data and provide personalized workout recommendations",
+          parameters: {
+            type: "object",
+            properties: {
+              focus: {
+                type: "string",
+                description: "Focus area: 'progression', 'volume', 'frequency', or 'general'"
               }
             }
           }
@@ -192,7 +323,7 @@ Use the provided tools to interact with the database.`;
       if (tool_name === 'get_workout_history') {
         const limit = tool_arguments.limit || 10;
         
-        // Get recent sessions
+        // Get recent sessions with details
         const { data: sessions } = await supabase
           .from('sessions')
           .select(`
@@ -200,20 +331,197 @@ Use the provided tools to interact with the database.`;
             title,
             started_at,
             finished_at,
-            total_volume
+            total_volume,
+            workout_id
           `)
           .order('started_at', { ascending: false })
           .limit(limit);
         
-        // Get existing workouts
+        return new Response(
+          JSON.stringify({ sessions }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      if (tool_name === 'get_workouts') {
+        const workoutId = tool_arguments.workout_id;
+        
+        let query = supabase
+          .from('workouts')
+          .select(`
+            id,
+            name,
+            summary,
+            created_at,
+            workout_days (
+              id,
+              dow,
+              position,
+              workout_groups (
+                id,
+                name,
+                group_type,
+                rest_seconds,
+                position,
+                workout_items (
+                  id,
+                  target_sets,
+                  target_reps,
+                  target_weight,
+                  rest_seconds_override,
+                  notes,
+                  position,
+                  exercises (
+                    id,
+                    name,
+                    category,
+                    instructions
+                  )
+                )
+              )
+            )
+          `)
+          .is('deleted_at', null);
+        
+        if (workoutId) {
+          query = query.eq('id', workoutId);
+          const { data: workout } = await query.single();
+          return new Response(
+            JSON.stringify({ workout }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        
+        const { data: workouts } = await query.order('created_at', { ascending: false });
+        return new Response(
+          JSON.stringify({ workouts }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      if (tool_name === 'update_workout') {
+        const { workout_id, name, summary } = tool_arguments;
+        
+        const updateData: any = { updated_at: new Date().toISOString() };
+        if (name) updateData.name = name;
+        if (summary) updateData.summary = summary;
+        
+        const { data: workout, error } = await supabase
+          .from('workouts')
+          .update(updateData)
+          .eq('id', workout_id)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        return new Response(
+          JSON.stringify({ success: true, workout }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      if (tool_name === 'get_plans') {
+        const activeOnly = tool_arguments.active_only || false;
+        
+        let query = supabase
+          .from('plans')
+          .select(`
+            id,
+            name,
+            start_date,
+            duration_weeks,
+            is_active,
+            workouts (
+              id,
+              name,
+              summary
+            )
+          `)
+          .is('deleted_at', null);
+        
+        if (activeOnly) {
+          query = query.eq('is_active', true);
+        }
+        
+        const { data: plans } = await query.order('created_at', { ascending: false });
+        
+        return new Response(
+          JSON.stringify({ plans }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      if (tool_name === 'create_plan') {
+        const { name, workout_id, start_date, duration_weeks } = tool_arguments;
+        
+        const { data: plan, error } = await supabase
+          .from('plans')
+          .insert({
+            name,
+            workout_id,
+            start_date,
+            duration_weeks,
+            is_active: true
+          })
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        return new Response(
+          JSON.stringify({ success: true, plan }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      if (tool_name === 'update_plan') {
+        const { plan_id, is_active, name } = tool_arguments;
+        
+        const updateData: any = { updated_at: new Date().toISOString() };
+        if (is_active !== undefined) updateData.is_active = is_active;
+        if (name) updateData.name = name;
+        
+        const { data: plan, error } = await supabase
+          .from('plans')
+          .update(updateData)
+          .eq('id', plan_id)
+          .select()
+          .single();
+        
+        if (error) throw error;
+        
+        return new Response(
+          JSON.stringify({ success: true, plan }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      if (tool_name === 'get_recommendations') {
+        // Gather comprehensive user data
+        const { data: sessions } = await supabase
+          .from('sessions')
+          .select('id, title, started_at, total_volume')
+          .order('started_at', { ascending: false })
+          .limit(20);
+        
         const { data: workouts } = await supabase
           .from('workouts')
           .select('id, name, summary')
-          .is('deleted_at', null)
-          .limit(20);
+          .is('deleted_at', null);
+        
+        const { data: plans } = await supabase
+          .from('plans')
+          .select('id, name, is_active, start_date, duration_weeks')
+          .is('deleted_at', null);
         
         return new Response(
-          JSON.stringify({ sessions, workouts }),
+          JSON.stringify({ 
+            sessions, 
+            workouts, 
+            plans,
+            analysis: "Use this data to provide personalized recommendations"
+          }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
