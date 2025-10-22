@@ -358,17 +358,17 @@ Use the provided tools to interact with the database.`;
             name,
             summary,
             created_at,
-            workout_days (
+            workout_days!workout_days_workout_id_fkey (
               id,
               dow,
               position,
-              workout_groups (
+              workout_groups!workout_groups_workout_day_id_fkey (
                 id,
                 name,
                 group_type,
                 rest_seconds,
                 position,
-                workout_items (
+                workout_items!workout_items_workout_group_id_fkey (
                   id,
                   target_sets,
                   target_reps,
@@ -376,7 +376,8 @@ Use the provided tools to interact with the database.`;
                   rest_seconds_override,
                   notes,
                   position,
-                  exercises (
+                  exercise_id,
+                  exercises:exercise_id (
                     id,
                     name,
                     category,
