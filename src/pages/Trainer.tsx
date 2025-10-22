@@ -35,13 +35,13 @@ export default function Trainer() {
   const handleToolCall = async (toolCall: any) => {
     console.log('Executing tool:', toolCall);
     
-    const { data, error } = await supabase.functions.invoke('personal-trainer', {
-      body: {
-        action: 'execute_tool',
-        tool_name: toolCall.function.name,
-        tool_arguments: JSON.parse(toolCall.function.arguments)
-      }
-    });
+      const { data, error } = await supabase.functions.invoke('ai-trainer', {
+        body: {
+          action: 'execute_tool',
+          tool_name: toolCall.function.name,
+          tool_arguments: JSON.parse(toolCall.function.arguments)
+        }
+      });
 
     if (error) {
       console.error('Tool execution error:', error);
@@ -66,7 +66,7 @@ export default function Trainer() {
       let currentMessages = conversationMessages;
       
       while (continueProcessing) {
-        const { data, error } = await supabase.functions.invoke('personal-trainer', {
+        const { data, error } = await supabase.functions.invoke('ai-trainer', {
           body: { messages: currentMessages }
         });
 

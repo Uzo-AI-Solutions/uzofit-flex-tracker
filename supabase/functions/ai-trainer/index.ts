@@ -1048,7 +1048,12 @@ async function handleToolCall(toolName: string, args: any, userId: string, supab
     }
   } catch (error) {
     console.error(`Error in ${toolName}:`, error);
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    };
   }
 }
 
@@ -1176,9 +1181,18 @@ Be conversational, encouraging, and provide specific, actionable advice based on
     });
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Error in ai-trainer:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
+    console.error('Request details:', {
+      url: req.url,
+      method: req.method,
+      headers: Object.fromEntries(req.headers.entries())
+    });
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
