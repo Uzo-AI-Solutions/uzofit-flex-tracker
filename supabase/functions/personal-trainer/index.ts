@@ -106,13 +106,17 @@ Use the provided tools to interact with the database.`;
         type: "function",
         function: {
           name: "get_workouts",
-          description: "Get all workout programs with full details including days, groups, and exercises",
+          description: "Get all workout programs with full details including days, groups, and exercises. Call this without parameters to see all workouts first.",
           parameters: {
             type: "object",
             properties: {
               workout_id: {
                 type: "string",
                 description: "Optional: Specific workout ID to get details for"
+              },
+              name: {
+                type: "string",
+                description: "Optional: Search by workout name (partial match)"
               }
             }
           }
@@ -345,6 +349,7 @@ Use the provided tools to interact with the database.`;
       
       if (tool_name === 'get_workouts') {
         const workoutId = tool_arguments.workout_id;
+        const searchName = tool_arguments.name;
         
         let query = supabase
           .from('workouts')
@@ -390,6 +395,10 @@ Use the provided tools to interact with the database.`;
             JSON.stringify({ workout }),
             { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
+        }
+        
+        if (searchName) {
+          query = query.ilike('name', `%${searchName}%`);
         }
         
         const { data: workouts } = await query.order('created_at', { ascending: false });
