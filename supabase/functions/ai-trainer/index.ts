@@ -1228,25 +1228,72 @@ async function handleToolCall(toolName: string, args: any, userId: string, supab
     }
   } catch (error) {
     console.error(`Error in ${toolName}:`, error);
+    console.error('Error type:', typeof error);
     console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
 
-    // Categorize Supabase errors for better error messages
-    if (error && typeof error === 'object' && 'code' in error) {
-      const errorInfo = categorizeSupabaseError(error);
-      console.error('Supabase error type:', errorInfo.type);
-
-      return {
-        success: false,
-        error: errorInfo.userFriendly,
-        errorType: errorInfo.type,
-        technicalDetails: errorInfo.message,
-        stack: error instanceof Error ? error.stack : undefined
-      };
+    // Log full error object structure for debugging
+    try {
+      console.error('Full error object:', JSON.stringify(error, null, 2));
+    } catch (stringifyError) {
+      console.error('Could not stringify error object');
     }
+
+    // Extract all possible error information
+    let errorMessage = 'Unknown error';
+    let errorDetails = '';
+    let errorHint = '';
+
+    if (error && typeof error === 'object') {
+      // Try to extract message from various possible properties
+      if ('message' in error && error.message) {
+        errorMessage = String(error.message);
+      } else if ('msg' in error && error.msg) {
+        errorMessage = String(error.msg);
+      } else if ('error' in error && error.error) {
+        errorMessage = String(error.error);
+      }
+
+      // Extract PostgreSQL-specific error details
+      if ('details' in error && error.details) {
+        errorDetails = String(error.details);
+      }
+      if ('hint' in error && error.hint) {
+        errorHint = String(error.hint);
+      }
+
+      // Categorize Supabase errors for better error messages
+      if ('code' in error) {
+        const errorInfo = categorizeSupabaseError(error);
+        console.error('Supabase error type:', errorInfo.type);
+
+        const fullMessage = [
+          errorInfo.userFriendly,
+          errorDetails ? `Details: ${errorDetails}` : '',
+          errorHint ? `Hint: ${errorHint}` : ''
+        ].filter(Boolean).join('. ');
+
+        return {
+          success: false,
+          error: fullMessage,
+          errorType: errorInfo.type,
+          technicalDetails: errorInfo.message,
+          pgDetails: errorDetails || undefined,
+          pgHint: errorHint || undefined,
+          stack: error instanceof Error ? error.stack : undefined
+        };
+      }
+    }
+
+    // Combine all error information
+    const fullMessage = [
+      errorMessage,
+      errorDetails ? `Details: ${errorDetails}` : '',
+      errorHint ? `Hint: ${errorHint}` : ''
+    ].filter(Boolean).join('. ');
 
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: fullMessage,
       stack: error instanceof Error ? error.stack : undefined
     };
   }
