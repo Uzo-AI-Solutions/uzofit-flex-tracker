@@ -11,6 +11,176 @@ const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
+// Helper: Validate UUID format
+function isValidUUID(uuid: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
+}
+
+// Helper: Fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 30000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timeout: AI service took too long to respond');
+    }
+    throw error;
+  }
+}
+
+// Helper: Parse API gateway errors
+async function parseAPIError(response: Response): Promise<string> {
+  try {
+    const errorData = await response.json();
+    if (errorData.error) {
+      if (typeof errorData.error === 'string') {
+        return errorData.error;
+      }
+      if (errorData.error.message) {
+        return errorData.error.message;
+      }
+    }
+    return `API error: ${response.status} ${response.statusText}`;
+  } catch {
+    // If we can't parse JSON, try text
+    try {
+      const errorText = await response.text();
+      return errorText || `API error: ${response.status} ${response.statusText}`;
+    } catch {
+      return `API error: ${response.status} ${response.statusText}`;
+    }
+  }
+}
+
+// Helper: Categorize Supabase errors
+interface SupabaseErrorInfo {
+  type: 'not_found' | 'permission_denied' | 'constraint_violation' | 'database_error' | 'unknown';
+  message: string;
+  userFriendly: string;
+}
+
+function categorizeSupabaseError(error: any): SupabaseErrorInfo {
+  const code = error.code;
+  const message = error.message || 'Unknown database error';
+
+  // PGRST116: No rows returned (404)
+  if (code === 'PGRST116') {
+    return {
+      type: 'not_found',
+      message,
+      userFriendly: 'The requested record was not found or you don\'t have access to it'
+    };
+  }
+
+  // PGRST301: Permission denied / RLS policy violation
+  if (code === 'PGRST301' || code === '42501') {
+    return {
+      type: 'permission_denied',
+      message,
+      userFriendly: 'You don\'t have permission to perform this action'
+    };
+  }
+
+  // 23503: Foreign key violation
+  // 23505: Unique constraint violation
+  // 23514: Check constraint violation
+  if (code === '23503' || code === '23505' || code === '23514') {
+    return {
+      type: 'constraint_violation',
+      message,
+      userFriendly: 'This operation violates data integrity rules. Please check your input.'
+    };
+  }
+
+  // Connection/database errors
+  if (message.toLowerCase().includes('connection') ||
+      message.toLowerCase().includes('timeout') ||
+      code?.startsWith('08')) {
+    return {
+      type: 'database_error',
+      message,
+      userFriendly: 'Database connection issue. Please try again.'
+    };
+  }
+
+  return {
+    type: 'unknown',
+    message,
+    userFriendly: 'An unexpected database error occurred'
+  };
+}
+
+// Helper: Validate required fields
+interface ValidationError {
+  field: string;
+  message: string;
+}
+
+function validateToolArgs(toolName: string, args: any): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  // UUID validations
+  const uuidFields = [
+    'workout_id', 'exercise_id', 'workout_day_id', 'workout_group_id',
+    'workout_item_id', 'plan_id', 'session_id', 'session_group_id',
+    'session_item_id', 'set_id'
+  ];
+
+  for (const field of uuidFields) {
+    if (args[field] !== undefined && !isValidUUID(args[field])) {
+      errors.push({ field, message: `Invalid UUID format for ${field}` });
+    }
+  }
+
+  // String validations (non-empty)
+  if (toolName === 'create_workout' || toolName === 'create_exercise' ||
+      toolName === 'create_plan' || toolName === 'create_session') {
+    if (args.name !== undefined && typeof args.name === 'string' && args.name.trim().length === 0) {
+      errors.push({ field: 'name', message: 'Name cannot be empty' });
+    }
+  }
+
+  // Number validations (positive)
+  const positiveNumberFields = ['target_sets', 'target_reps', 'target_weight', 'rest_seconds', 'duration_weeks'];
+  for (const field of positiveNumberFields) {
+    if (args[field] !== undefined && (typeof args[field] !== 'number' || args[field] < 0)) {
+      errors.push({ field, message: `${field} must be a positive number` });
+    }
+  }
+
+  // Category validation
+  if (toolName === 'create_exercise' || toolName === 'update_exercise') {
+    if (args.category && !['strength', 'cardio', 'flexibility', 'balance'].includes(args.category)) {
+      errors.push({
+        field: 'category',
+        message: 'Category must be one of: strength, cardio, flexibility, balance'
+      });
+    }
+  }
+
+  // Group type validation
+  if (toolName === 'create_workout_group' || toolName === 'create_session_group') {
+    if (args.group_type && !['straight_set', 'superset', 'circuit'].includes(args.group_type)) {
+      errors.push({
+        field: 'group_type',
+        message: 'Group type must be one of: straight_set, superset, circuit'
+      });
+    }
+  }
+
+  return errors;
+}
+
 const tools = [
   // Workout CRUD
   {
@@ -519,6 +689,16 @@ async function handleToolCall(toolName: string, args: any, userId: string, supab
   console.log(`Executing tool: ${toolName}`, args);
 
   try {
+    // Validate arguments before processing
+    const validationErrors = validateToolArgs(toolName, args);
+    if (validationErrors.length > 0) {
+      return {
+        success: false,
+        error: 'Validation failed',
+        validationErrors: validationErrors.map(e => `${e.field}: ${e.message}`).join(', ')
+      };
+    }
+
     switch (toolName) {
       // Workout CRUD
       case "list_workouts": {
@@ -1049,8 +1229,23 @@ async function handleToolCall(toolName: string, args: any, userId: string, supab
   } catch (error) {
     console.error(`Error in ${toolName}:`, error);
     console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
-    return { 
-      success: false, 
+
+    // Categorize Supabase errors for better error messages
+    if (error && typeof error === 'object' && 'code' in error) {
+      const errorInfo = categorizeSupabaseError(error);
+      console.error('Supabase error type:', errorInfo.type);
+
+      return {
+        success: false,
+        error: errorInfo.userFriendly,
+        errorType: errorInfo.type,
+        technicalDetails: errorInfo.message,
+        stack: error instanceof Error ? error.stack : undefined
+      };
+    }
+
+    return {
+      success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
       stack: error instanceof Error ? error.stack : undefined
     };
@@ -1102,7 +1297,7 @@ Be conversational, encouraging, and provide specific, actionable advice based on
       ? `${baseSystemPrompt}\n\nCustom Instructions: ${settings.system_instructions}`
       : baseSystemPrompt;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${LOVABLE_API_KEY}`,
@@ -1120,36 +1315,82 @@ Be conversational, encouraging, and provide specific, actionable advice based on
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('AI gateway error:', response.status, errorText);
-      throw new Error(`AI gateway error: ${response.status}`);
+      const errorMessage = await parseAPIError(response);
+      console.error('AI gateway error:', response.status, errorMessage);
+      throw new Error(`AI service error (${response.status}): ${errorMessage}`);
     }
 
     const aiResponse = await response.json();
-    const message = aiResponse.choices[0].message;
+
+    // Handle edge cases: Check if response structure is valid
+    if (!aiResponse.choices || !Array.isArray(aiResponse.choices) || aiResponse.choices.length === 0) {
+      console.error('Invalid AI response structure:', aiResponse);
+      throw new Error('AI service returned an invalid response structure');
+    }
+
+    const message = aiResponse.choices[0]?.message;
+    if (!message) {
+      console.error('Missing message in AI response:', aiResponse);
+      throw new Error('AI service returned a response without a message');
+    }
 
     // Handle tool calls
     if (message.tool_calls && message.tool_calls.length > 0) {
       const toolResults = [];
-      
+      const toolFailures: string[] = [];
+
       for (const toolCall of message.tool_calls) {
-        const result = await handleToolCall(
-          toolCall.function.name,
-          JSON.parse(toolCall.function.arguments),
-          user.id,
-          supabase
-        );
-        
-        toolResults.push({
-          tool_call_id: toolCall.id,
-          role: 'tool',
-          name: toolCall.function.name,
-          content: JSON.stringify(result)
-        });
+        try {
+          const args = JSON.parse(toolCall.function.arguments);
+          const result = await handleToolCall(
+            toolCall.function.name,
+            args,
+            user.id,
+            supabase
+          );
+
+          // Track failed tools
+          if (!result.success) {
+            toolFailures.push(`${toolCall.function.name}: ${result.error}`);
+          }
+
+          // Truncate large results to prevent issues
+          const resultString = JSON.stringify(result);
+          const truncatedResult = resultString.length > 50000
+            ? resultString.substring(0, 50000) + '...[truncated]'
+            : resultString;
+
+          toolResults.push({
+            tool_call_id: toolCall.id,
+            role: 'tool',
+            name: toolCall.function.name,
+            content: truncatedResult
+          });
+        } catch (error) {
+          // Handle JSON parse errors or other tool execution errors
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          toolFailures.push(`${toolCall.function.name}: ${errorMessage}`);
+
+          toolResults.push({
+            tool_call_id: toolCall.id,
+            role: 'tool',
+            name: toolCall.function.name,
+            content: JSON.stringify({
+              success: false,
+              error: errorMessage
+            })
+          });
+        }
       }
 
-      // Get final response with tool results
-      const finalResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      // Log tool failures for monitoring
+      if (toolFailures.length > 0) {
+        console.warn('Tool execution failures:', toolFailures);
+      }
+
+      // Continue with AI response even if some tools failed
+      // The AI will see the failure results and can respond appropriately
+      const finalResponse = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${LOVABLE_API_KEY}`,
@@ -1167,10 +1408,19 @@ Be conversational, encouraging, and provide specific, actionable advice based on
       });
 
       if (!finalResponse.ok) {
-        throw new Error('Failed to get final response');
+        const errorMessage = await parseAPIError(finalResponse);
+        console.error('AI gateway error on final response:', finalResponse.status, errorMessage);
+        throw new Error(`AI service error on final response (${finalResponse.status}): ${errorMessage}`);
       }
 
       const finalData = await finalResponse.json();
+
+      // Validate final response structure
+      if (!finalData.choices || !Array.isArray(finalData.choices) || finalData.choices.length === 0) {
+        console.error('Invalid final AI response structure:', finalData);
+        throw new Error('AI service returned an invalid final response structure');
+      }
+
       return new Response(JSON.stringify(finalData), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
