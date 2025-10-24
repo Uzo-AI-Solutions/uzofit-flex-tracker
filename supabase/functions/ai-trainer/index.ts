@@ -428,6 +428,148 @@ const tools = [
         required: ["system_instructions"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_complete_workout",
+      description: "Create a complete workout with all days, groups, and exercises in ONE call. Use this instead of manually creating structure piece by piece. Much faster and safer than using manage_workout_structure repeatedly.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Workout name (required)" },
+          summary: { type: "string", description: "Workout description (optional)" },
+          days: {
+            type: "array",
+            description: "Array of workout days with groups and exercises",
+            items: {
+              type: "object",
+              properties: {
+                dow: {
+                  type: "string",
+                  enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+                  description: "Day of week"
+                },
+                position: { type: "number", description: "Order position (default: 1)" },
+                groups: {
+                  type: "array",
+                  description: "Exercise groups for this day",
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string", description: "Group name (e.g., 'Chest & Triceps')" },
+                      group_type: {
+                        type: "string",
+                        enum: ["single", "superset", "triset", "circuit"],
+                        description: "Type of grouping"
+                      },
+                      rest_seconds: { type: "number", description: "Rest time between sets" },
+                      position: { type: "number", description: "Order position" },
+                      exercises: {
+                        type: "array",
+                        description: "Exercises in this group",
+                        items: {
+                          type: "object",
+                          properties: {
+                            name: { type: "string", description: "Exercise name (will be created if doesn't exist)" },
+                            category: {
+                              type: "string",
+                              enum: ["strength", "cardio", "flexibility", "balance"],
+                              description: "Exercise category (default: strength)"
+                            },
+                            instructions: { type: "string", description: "How to perform the exercise" },
+                            target_sets: { type: "number", description: "Target number of sets" },
+                            target_reps: { type: "number", description: "Target number of reps" },
+                            target_weight: { type: "number", description: "Target weight in kg" },
+                            rest_seconds_override: { type: "number", description: "Override group rest time for this exercise" },
+                            notes: { type: "string", description: "Exercise notes" },
+                            position: { type: "number", description: "Order position" }
+                          },
+                          required: ["name"]
+                        }
+                      }
+                    },
+                    required: ["name", "group_type", "exercises"]
+                  }
+                }
+              },
+              required: ["dow", "groups"]
+            }
+          }
+        },
+        required: ["name", "days"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "start_session_from_workout",
+      description: "Start a new workout session from a workout template. Automatically copies the workout structure and prepares it for logging sets. Much easier than manually creating sessions.",
+      parameters: {
+        type: "object",
+        properties: {
+          workout_id: { type: "string", description: "UUID of the workout template to use (required)" },
+          plan_id: { type: "string", description: "UUID of the training plan (optional)" },
+          dow: {
+            type: "string",
+            enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+            description: "Day of week (optional, defaults to today)"
+          },
+          title: { type: "string", description: "Custom session title (optional, auto-generated if not provided)" }
+        },
+        required: ["workout_id"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_exercise_history",
+      description: "Get comprehensive history for a specific exercise including all past sessions, sets, PRs, and progress statistics. Use this to answer questions about exercise performance over time.",
+      parameters: {
+        type: "object",
+        properties: {
+          exercise_name: { type: "string", description: "Name of the exercise (required)" },
+          start_date: { type: "string", description: "Start date in ISO format (optional, defaults to 3 months ago)" },
+          end_date: { type: "string", description: "End date in ISO format (optional, defaults to today)" },
+          limit: { type: "number", description: "Maximum number of sessions to return (default: 50)" }
+        },
+        required: ["exercise_name"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_workout_analytics",
+      description: "Get comprehensive analytics including volume trends, top exercises, personal records, and workout frequency. Use this to answer questions about overall progress and performance.",
+      parameters: {
+        type: "object",
+        properties: {
+          start_date: { type: "string", description: "Start date in ISO format (optional, defaults to 3 months ago)" },
+          end_date: { type: "string", description: "End date in ISO format (optional, defaults to today)" },
+          workout_id: { type: "string", description: "Filter analytics to a specific workout (optional)" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "clone_workout",
+      description: "Create a copy of an existing workout with optional modifications like weight scaling (for deload weeks) or rep adjustments. Useful for creating workout variations.",
+      parameters: {
+        type: "object",
+        properties: {
+          workout_id: { type: "string", description: "UUID of the workout to clone (required)" },
+          new_name: { type: "string", description: "Name for the cloned workout (required)" },
+          scale_weights: { type: "number", description: "Multiply all weights by this factor (optional, default: 1.0, e.g., 0.8 for deload)" },
+          change_reps: { type: "number", description: "Add/subtract this many reps to all exercises (optional, default: 0)" }
+        },
+        required: ["workout_id", "new_name"]
+      }
+    }
   }
 ];
 
@@ -1185,6 +1327,97 @@ async function handleToolCall(toolName: string, args: any, userId: string, supab
 
         if (error) throw error;
         return { success: true, data, message: "Settings updated" };
+      }
+
+      case "create_complete_workout": {
+        if (!args.name || args.name.trim().length === 0) {
+          return { success: false, error: 'Workout name is required' };
+        }
+        if (!args.days || !Array.isArray(args.days) || args.days.length === 0) {
+          return { success: false, error: 'At least one day is required' };
+        }
+
+        const { data, error } = await supabase.rpc('create_complete_workout', {
+          p_user_id: userId,
+          p_workout_name: args.name,
+          p_workout_summary: args.summary || null,
+          p_days: args.days
+        });
+
+        if (error) throw error;
+        return data;
+      }
+
+      case "start_session_from_workout": {
+        if (!args.workout_id) {
+          return { success: false, error: 'workout_id is required' };
+        }
+        if (!isValidUUID(args.workout_id)) {
+          return { success: false, error: 'Invalid workout_id format' };
+        }
+
+        const { data, error } = await supabase.rpc('start_session_from_workout', {
+          p_user_id: userId,
+          p_workout_id: args.workout_id,
+          p_plan_id: args.plan_id || null,
+          p_dow: args.dow || null,
+          p_title: args.title || null
+        });
+
+        if (error) throw error;
+        return data;
+      }
+
+      case "get_exercise_history": {
+        if (!args.exercise_name || args.exercise_name.trim().length === 0) {
+          return { success: false, error: 'exercise_name is required' };
+        }
+
+        const { data, error } = await supabase.rpc('get_exercise_history', {
+          p_user_id: userId,
+          p_exercise_name: args.exercise_name,
+          p_start_date: args.start_date || null,
+          p_end_date: args.end_date || null,
+          p_limit: args.limit || 50
+        });
+
+        if (error) throw error;
+        return { success: true, data };
+      }
+
+      case "get_workout_analytics": {
+        const { data, error } = await supabase.rpc('get_workout_analytics', {
+          p_user_id: userId,
+          p_start_date: args.start_date || null,
+          p_end_date: args.end_date || null,
+          p_workout_id: args.workout_id || null
+        });
+
+        if (error) throw error;
+        return { success: true, data };
+      }
+
+      case "clone_workout": {
+        if (!args.workout_id) {
+          return { success: false, error: 'workout_id is required' };
+        }
+        if (!isValidUUID(args.workout_id)) {
+          return { success: false, error: 'Invalid workout_id format' };
+        }
+        if (!args.new_name || args.new_name.trim().length === 0) {
+          return { success: false, error: 'new_name is required' };
+        }
+
+        const { data, error } = await supabase.rpc('clone_workout', {
+          p_user_id: userId,
+          p_workout_id: args.workout_id,
+          p_new_name: args.new_name,
+          p_scale_weights: args.scale_weights || 1.0,
+          p_change_reps: args.change_reps || 0
+        });
+
+        if (error) throw error;
+        return data;
       }
 
       default:
