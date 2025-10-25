@@ -1,65 +1,185 @@
-# UzoFit - Smart Workout Tracker
+# UzoFit - AI-Powered Smart Workout Tracker
 
-A comprehensive workout tracking application built for serious lifters who want to organize their training programs, track progress, and achieve their fitness goals.
+A comprehensive workout tracking application with **AI personal trainer** built for serious lifters who want to organize their training programs, track progress, and achieve their fitness goals through intelligent assistance.
+
+## ✨ What Makes UzoFit Special
+
+- **🤖 AI Personal Trainer**: Create complete workouts, analyze progress, and get personalized recommendations through natural conversation
+- **📊 Advanced Analytics**: Deep insights into your training history with exercise-specific metrics and personal records
+- **💪 Complete Workout Management**: Build structured programs with supersets, trisets, and circuits
+- **📱 Real-Time Session Tracking**: Log your workouts set-by-set with live volume calculations
+- **🔒 Privacy-First**: Your data is completely isolated with Row Level Security - nobody else can see it
+- **📤 Share & Backup**: Export/import workouts as JSON to share with training partners or backup your programs
 
 ## 🏋️ Features
 
-### 📋 Workout Builder
-- Create custom workout programs with multiple training days
-- Organize exercises into groups (single sets, supersets, trisets, circuits)
-- Set target sets, reps, and weights for each exercise
-- Add rest timers between groups
-- Manage your exercise library with custom exercises
-- Soft delete protection - never lose your workout history
+### 🤖 AI Personal Trainer (Powered by Claude)
+**Your intelligent training companion that understands your fitness journey**
 
-### 📅 Training Plans
+- **Natural Language Workout Creation**: Describe your ideal workout in plain English, and the AI creates complete programs with proper exercise groupings, sets, reps, and rest periods
+- **Conversational Training Assistant**: Chat with your AI trainer to get workout advice, ask questions about form, and receive personalized recommendations
+- **Smart Analytics & Progress Insights**: Ask questions like "What's my bench press progress?" or "How's my volume trending?" and get detailed answers based on your complete training history
+- **14 Specialized AI Tools** including:
+  - Complete workout creation from descriptions
+  - Exercise history analysis with personal records
+  - Workout analytics and performance trends
+  - Session management and logging assistance
+  - Workout cloning with modifications (deload weeks, progressive overload)
+  - Exercise library management
+  - Training plan recommendations
+- **Personalized Training Style**: Customize AI behavior with your preferences, goals, and training philosophy in Settings
+- **Real-Time Session Support**: Get guidance during active workouts, log sets via conversation, and receive form tips
+- **Smart Recommendations**: AI analyzes your history to suggest volume progressions, exercise variations, and recovery strategies
+
+Location: **Trainer** page
+
+---
+
+### 📋 Workout Builder
+- Create custom workout programs with multiple training days (Monday-Sunday)
+- Organize exercises into groups:
+  - **Single**: Standard sets of one exercise
+  - **Superset**: Two exercises back-to-back
+  - **Triset**: Three exercises in sequence
+  - **Circuit**: Multiple exercises in rotation
+- Set target sets, reps, and weights for each exercise
+- Configure rest timers between groups and per-exercise overrides
+- Add exercise-specific notes and form cues
+- Manage your exercise library with custom exercises
+- Exercise categories: strength, cardio, flexibility, balance
+- Soft delete protection - never lose your workout history
+- Position-based ordering for precise workout structure
+
+### 📅 Training Plans & Scheduling
 - Create structured training plans based on your workouts
-- Set plan duration (weeks) and start dates
-- Activate/deactivate plans as needed
+- Set plan duration in weeks and start dates
+- Activate/deactivate plans (only one active at a time)
 - View your weekly training schedule at a glance
+- Visual 7-day week view with scheduled workout indicators
+- Quick session start - launch today's workout with one click
+- Auto-detects day of week for proper workout selection
 - Track which days you've completed
 
 ### 💪 Active Session Tracking
 - Start today's workout with one click from your active plan
-- Follow your workout structure with live rest timers
+- Real-time workout logging interface
 - Log each set with actual reps and weight used
-- Real-time total volume calculation
+- Set-by-set completion tracking (shows completed/target sets)
+- Real-time total volume calculation (reps × weight × all sets)
+- Session duration timer
 - Mark exercises as complete as you progress
 - Finish sessions with complete workout summary
+- Automatic session save to history with timestamp
 
-### 📊 Training History
-- View all completed training sessions
+### 📊 Training History & Analytics
+**View & Analyze Your Progress**
+- View all completed training sessions in reverse chronological order
 - Detailed session breakdowns with all logged sets
-- Track total volume per session
+- Track total volume and duration per session
 - Review exercise performance over time
-- Filter by date and workout type
+- Per-set volume calculations
+- Date and time information for every session
+
+**Advanced Analytics (via AI or Backend Functions)**
+- Exercise-specific history with personal records
+- Volume trends over custom date ranges
+- Weekly performance breakdowns
+- Top 10 most-trained exercises
+- Average session duration and volume
+- 1RM estimates and max weight achievements
+- Total sets and reps by exercise
+- Session-by-session performance comparisons
 
 ### 🔄 Import/Export
-- Export entire workout programs as JSON files
-- Share workouts with training partners
-- Backup your programs
-- Import workouts from JSON
-- Automatically handles exercise creation during import
+- Export entire workout programs as structured JSON files
+- Share workouts with training partners or across devices
+- Backup your programs securely
+- Import workouts from JSON with full validation
+- Automatic exercise creation during import (or reuse existing)
+- Preserves complete workout structure: days, groups, items, targets
+- Imported workouts marked with "(Imported)" suffix
 
 ### 🎨 Exercise Management
 - Built-in exercise library with 15+ common exercises
-- Add custom exercises with instructions
-- Categorize exercises (strength, cardio, etc.)
-- Search and filter exercises
-- Track exercise usage across workouts
+- Add unlimited custom exercises with detailed instructions
+- Categorize exercises: strength, cardio, flexibility, balance
+- Form cues and technique notes per exercise
+- Reuse exercises across multiple workouts
+- Track exercise usage across your programs
+- Create exercises on-the-fly during workout building
+- Manage exercise library via AI trainer
+
+### ⚙️ Settings & Personalization
+- **AI Trainer Custom Instructions**: Define your training preferences, goals, and style
+- Customize how the AI trainer interacts with you
+- Store detailed preferences in your user profile
+- Examples: preferred rep ranges, exercise restrictions, training philosophy
+- Persistent across all AI conversations
+
+### 🔒 Security & Data Privacy
+- Row Level Security (RLS) on all database tables
+- User-specific data isolation - you only see your own data
+- Automatic user_id assignment on all records
+- Secure authentication with Supabase Auth
+- No cross-user data access
+- Protected routes requiring authentication
 
 ## 🚀 Getting Started
 
 ### First Time Setup
 1. **Sign Up** - Create your account on the Auth page
-2. **Browse Exercises** - Check the exercise library in Workouts
-3. **Create a Workout** - Build your first training program
-4. **Make a Plan** - Set up a training plan with your workout
-5. **Start Training** - Begin your first session!
+2. **Try the AI Trainer** - Visit the Trainer page and ask it to create a workout for you (e.g., "Create me a 3-day push/pull/legs program")
+3. **Browse Exercises** - Check the exercise library in Workouts
+4. **Create a Workout** - Build your first training program (manually or via AI)
+5. **Make a Plan** - Set up a training plan with your workout
+6. **Personalize Your AI** - Go to Settings to add custom instructions for your AI trainer
+7. **Start Training** - Begin your first session!
 
 ## 📖 How to Use
 
-### Creating Your First Workout
+### Using the AI Personal Trainer
+
+The AI Trainer is the fastest way to get started and manage your fitness journey through natural conversation.
+
+**Creating Workouts with AI:**
+1. Go to **Trainer** page
+2. Describe what you want: "Create a 4-day upper/lower split with compound movements"
+3. AI generates the complete workout with proper structure
+4. Review and start using it immediately
+
+**Getting Analytics:**
+- "What's my bench press progress over the last 3 months?"
+- "Show me my total volume trends"
+- "What are my personal records?"
+- AI provides detailed analytics based on your complete history
+
+**Workout Modifications:**
+- "Clone my Upper Body workout but reduce all weights by 20% for a deload week"
+- "Create a variation of my PPL program with more volume"
+- AI creates modified versions instantly
+
+**Session Management:**
+- "Start a session from my Push Day workout"
+- "Log 225lbs for 5 reps on bench press"
+- AI helps you track workouts through conversation
+
+**Personalizing Your AI:**
+1. Go to **Settings**
+2. Add custom instructions like:
+   - "I prefer high volume training (4-5 sets per exercise)"
+   - "I have a shoulder injury, avoid overhead pressing"
+   - "My goal is powerlifting, focus on big compound lifts"
+3. AI incorporates your preferences into all responses
+
+**Pro Tips:**
+- Be specific in your requests for better results
+- Ask follow-up questions to refine workouts
+- Use AI to explain exercise techniques and form
+- Request workout recommendations based on your history
+
+---
+
+### Creating Your First Workout (Manual Method)
 
 1. Navigate to **Workouts** page
 2. Click **Create Workout**
@@ -192,38 +312,95 @@ The JSON must follow this exact structure. Required fields are marked with `*`:
 
 ## 🛠️ Technical Stack
 
-- **Frontend**: React 18, TypeScript, Vite
-- **UI Components**: shadcn/ui, Radix UI
-- **Styling**: Tailwind CSS with custom fitness theme
-- **Backend**: Lovable Cloud (Supabase)
-- **Database**: PostgreSQL with Row Level Security
-- **State Management**: TanStack Query (React Query)
-- **Routing**: React Router v6
-- **Form Validation**: React Hook Form + Zod
-- **Authentication**: Supabase Auth with auto-confirm
+### Frontend
+- **Framework**: React 18 with TypeScript
+- **Build Tool**: Vite for fast development and optimized production builds
+- **UI Components**: shadcn/ui, Radix UI primitives
+- **Styling**: Tailwind CSS with custom fitness theme and gradients
+- **State Management**: TanStack Query (React Query) for server state
+- **Routing**: React Router v6 with protected routes
+- **Form Validation**: React Hook Form + Zod schemas
+
+### Backend & Database
+- **Platform**: Lovable Cloud (Supabase)
+- **Database**: PostgreSQL with Row Level Security (RLS)
+- **Authentication**: Supabase Auth with auto-confirm signup
+- **Edge Functions**: Deno-based serverless functions
+- **Real-time**: TanStack Query for data synchronization
+
+### AI & Intelligence
+- **AI Model**: Claude (Anthropic) via Supabase Edge Function
+- **AI Integration**: Custom tool-based system with 14 specialized tools
+- **Capabilities**:
+  - Natural language workout creation
+  - Conversational analytics and insights
+  - Exercise history analysis
+  - Personalized recommendations
+  - Real-time training assistance
+- **Function**: `ai-trainer` edge function (`/home/user/uzofit-flex-tracker/supabase/functions/ai-trainer/index.ts`)
+
+### Database Functions & Optimization
+- **Helper Functions**: PostgreSQL functions for complex operations
+  - `create_complete_workout()` - Bulk workout creation
+  - `start_session_from_workout()` - Session initialization
+  - `get_exercise_history()` - Exercise analytics
+  - `get_workout_analytics()` - Performance metrics
+- **Benefits**: Reduced API calls, atomic transactions, efficient queries
 
 ## 💾 Database Schema
 
-- **workouts**: Base workout programs
-- **workout_days**: Training days within workouts
-- **workout_groups**: Exercise groupings (single/superset/etc)
-- **workout_items**: Individual exercises with targets
-- **exercises**: Exercise library
-- **plans**: Training plan schedules
-- **sessions**: Completed training sessions
-- **session_groups**: Session exercise groupings
-- **session_items**: Session exercises
-- **completed_sets**: Logged set data (reps/weight)
+### Core Workout Management
+- **workouts**: Base workout program templates with name, summary, and soft delete support
+- **workout_days**: Training days within workouts (Mon-Sun) with positioning
+- **workout_groups**: Exercise groupings (single/superset/triset/circuit) with rest periods
+- **workout_items**: Individual exercises with targets (sets/reps/weight) and notes
+- **exercises**: Global exercise library with categories and instructions
+
+### Training Plans & Sessions
+- **plans**: Training plan schedules with duration, start dates, and active status
+- **sessions**: Completed training sessions with duration and total volume
+- **session_groups**: Session-specific exercise groupings (copied from workout template)
+- **session_items**: Session-specific exercises (copied from workout template)
+- **completed_sets**: Individual set logs with actual reps, weight, and timestamps
+
+### User Management
+- **user_settings**: User preferences and AI trainer custom instructions
+
+**Key Features:**
+- All tables protected by Row Level Security (RLS)
+- Automatic `user_id` filtering for data isolation
+- Soft deletes on workouts preserve historical data
+- Foreign key relationships maintain data integrity
 
 ## 🎯 Best Practices
 
-1. **Start Simple**: Begin with basic workouts before complex programs
-2. **Be Consistent**: Log every set for accurate progress tracking
-3. **Use Plans**: Structure your training with 4-12 week plans
-4. **Rest Days**: Schedule rest days by skipping days in workout structure
-5. **Progressive Overload**: Review history to gradually increase weights
-6. **Export Regularly**: Backup your favorite programs
-7. **Customize**: Adjust rest times and targets based on your needs
+### Getting Started
+1. **Start with AI**: Let the AI trainer create your first workout by describing your goals
+2. **Personalize Early**: Add custom instructions in Settings so the AI understands your preferences
+3. **Start Simple**: Begin with basic workouts before complex programs
+
+### Training & Logging
+4. **Be Consistent**: Log every set for accurate progress tracking and better AI recommendations
+5. **Use Plans**: Structure your training with 4-12 week plans for consistent progress
+6. **Track Everything**: The more data you log, the better insights AI can provide
+7. **Rest Days**: Schedule rest days by skipping days in workout structure
+
+### Progress & Analysis
+8. **Ask Your AI**: Use conversational queries like "How's my squat progressing?" for instant insights
+9. **Progressive Overload**: Review history (or ask AI) to gradually increase weights
+10. **Check Analytics**: Regularly review volume trends and personal records via the AI trainer
+11. **Use Deloads**: Ask AI to clone your workout with reduced weights (e.g., -20%) for recovery weeks
+
+### Data Management
+12. **Export Regularly**: Backup your favorite programs as JSON files
+13. **Share Programs**: Export and share successful programs with training partners
+14. **Customize**: Adjust rest times and targets based on your needs and recovery
+
+### Advanced Tips
+15. **Exercise Variations**: Ask AI to suggest alternative exercises if you lack equipment
+16. **Form Help**: Ask AI for form cues and technique tips on specific exercises
+17. **Program Design**: Let AI create periodized programs with varying intensity and volume
+18. **Quick Logging**: Use AI to log sets during workouts through conversation
 
 ## 🔧 Development
 
