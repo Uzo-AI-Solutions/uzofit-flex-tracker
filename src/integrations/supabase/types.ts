@@ -454,7 +454,54 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      clone_workout: {
+        Args: {
+          p_change_reps?: number
+          p_new_name: string
+          p_scale_weights?: number
+          p_user_id: string
+          p_workout_id: string
+        }
+        Returns: Json
+      }
+      create_complete_workout: {
+        Args: {
+          p_days?: Json
+          p_user_id: string
+          p_workout_name: string
+          p_workout_summary?: string
+        }
+        Returns: Json
+      }
+      get_exercise_history: {
+        Args: {
+          p_end_date?: string
+          p_exercise_name: string
+          p_limit?: number
+          p_start_date?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      get_workout_analytics: {
+        Args: {
+          p_end_date?: string
+          p_start_date?: string
+          p_user_id: string
+          p_workout_id?: string
+        }
+        Returns: Json
+      }
+      start_session_from_workout: {
+        Args: {
+          p_dow?: Database["public"]["Enums"]["day_of_week"]
+          p_plan_id?: string
+          p_title?: string
+          p_user_id: string
+          p_workout_id: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
       day_of_week: "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun"
