@@ -1634,7 +1634,6 @@ Be conversational, encouraging, and provide specific, actionable advice based on
 
       // Continue with AI response even if some tools failed
       // The AI will see the failure results and can respond appropriately
-      // Use streaming for better UX
       const finalResponse = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -1648,8 +1647,7 @@ Be conversational, encouraging, and provide specific, actionable advice based on
             ...messages,
             message,
             ...toolResults
-          ],
-          stream: true
+          ]
         }),
       });
 
@@ -1659,32 +1657,16 @@ Be conversational, encouraging, and provide specific, actionable advice based on
         throw new Error(`AI service error on final response (${finalResponse.status}): ${errorMessage}`);
       }
 
-      // Stream the response to the client
-      const stream = new ReadableStream({
-        async start(controller) {
-          const encoder = new TextEncoder();
-          try {
-            for await (const chunk of streamSSEResponse(finalResponse)) {
-              // Forward SSE chunks to client
-              const sseData = `data: ${JSON.stringify(chunk)}\n\n`;
-              controller.enqueue(encoder.encode(sseData));
-            }
-            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
-            controller.close();
-          } catch (error) {
-            console.error('Streaming error:', error);
-            controller.error(error);
-          }
-        }
-      });
+      const finalAiResponse = await finalResponse.json();
+      
+      // Validate final response structure
+      if (!finalAiResponse.choices || !Array.isArray(finalAiResponse.choices) || finalAiResponse.choices.length === 0) {
+        console.error('Invalid AI final response structure:', finalAiResponse);
+        throw new Error('AI service returned an invalid final response structure');
+      }
 
-      return new Response(stream, {
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive'
-        }
+      return new Response(JSON.stringify(finalAiResponse), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
