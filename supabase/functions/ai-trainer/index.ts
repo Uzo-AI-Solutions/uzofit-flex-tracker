@@ -8,7 +8,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const GOOGLE_API_KEY = Deno.env.get('GOOGLE_API_KEY');
+const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -1415,7 +1415,7 @@ Be conversational, encouraging, and provide specific, actionable advice based on
       : baseSystemPrompt;
 
     // Initialize Google Generative AI
-    const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY!);
+    const genAI = new GoogleGenerativeAI(LOVABLE_API_KEY!);
     const model = genAI.getGenerativeModel({
       model: "gemini-2.0-flash-exp",
       systemInstruction: systemPrompt,
