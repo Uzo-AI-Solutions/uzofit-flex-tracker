@@ -1,13 +1,14 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { GoogleGenerativeAI } from "npm:@google/generative-ai@^0.21.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+const GOOGLE_API_KEY = Deno.env.get('GOOGLE_API_KEY');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -17,50 +18,6 @@ function isValidUUID(uuid: string): boolean {
   return uuidRegex.test(uuid);
 }
 
-// Helper: Fetch with timeout
-async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 30000): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Request timeout: AI service took too long to respond');
-    }
-    throw error;
-  }
-}
-
-// Helper: Parse API gateway errors
-async function parseAPIError(response: Response): Promise<string> {
-  try {
-    const errorData = await response.json();
-    if (errorData.error) {
-      if (typeof errorData.error === 'string') {
-        return errorData.error;
-      }
-      if (errorData.error.message) {
-        return errorData.error.message;
-      }
-    }
-    return `API error: ${response.status} ${response.statusText}`;
-  } catch {
-    // If we can't parse JSON, try text
-    try {
-      const errorText = await response.text();
-      return errorText || `API error: ${response.status} ${response.statusText}`;
-    } catch {
-      return `API error: ${response.status} ${response.statusText}`;
-    }
-  }
-}
 
 // Helper: Categorize Supabase errors
 interface SupabaseErrorInfo {
@@ -181,394 +138,310 @@ function validateToolArgs(toolName: string, args: any): ValidationError[] {
   return errors;
 }
 
-// Helper: Stream SSE response from AI to client
-async function* streamSSEResponse(response: Response) {
-  const reader = response.body?.getReader();
-  const decoder = new TextDecoder();
 
-  if (!reader) {
-    throw new Error('Response body is not readable');
-  }
-
-  let buffer = '';
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            return;
-          }
-          try {
-            yield JSON.parse(data);
-          } catch (e) {
-            console.error('Failed to parse SSE data:', data);
-          }
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-// Consolidated tools - reduced from 32 to 8 for better performance
+// Consolidated tools - converted to Google Gemini format
 const tools = [
   {
-    type: "function",
-    function: {
-      name: "manage_workouts",
-      description: "Manage workout programs (create, read, update, delete). A workout is a template containing days, groups, and exercises.",
-      parameters: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: ["list", "get", "create", "update", "delete"],
-            description: "Action to perform"
-          },
-          workout_id: { type: "string", description: "UUID of workout (required for get, update, delete)" },
-          name: { type: "string", description: "Workout name (required for create, optional for update)" },
-          summary: { type: "string", description: "Workout description (optional)" }
+    name: "manage_workouts",
+    description: "Manage workout programs (create, read, update, delete). A workout is a template containing days, groups, and exercises.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "get", "create", "update", "delete"],
+          description: "Action to perform"
         },
-        required: ["action"]
-      }
+        workout_id: { type: "string", description: "UUID of workout (required for get, update, delete)" },
+        name: { type: "string", description: "Workout name (required for create, optional for update)" },
+        summary: { type: "string", description: "Workout description (optional)" }
+      },
+      required: ["action"]
     }
   },
   {
-    type: "function",
-    function: {
-      name: "manage_exercises",
-      description: "Manage exercise library (create, read, update, delete). Exercises are reusable across workouts.",
-      parameters: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: ["list", "create", "update", "delete"],
-            description: "Action to perform"
-          },
-          exercise_id: { type: "string", description: "UUID of exercise (required for update, delete)" },
-          name: { type: "string", description: "Exercise name (required for create, optional for update)" },
-          instructions: { type: "string", description: "How to perform the exercise" },
-          category: {
-            type: "string",
-            enum: ["strength", "cardio", "flexibility", "balance"],
-            description: "Exercise category (required for create, optional for update)"
-          }
+    name: "manage_exercises",
+    description: "Manage exercise library (create, read, update, delete). Exercises are reusable across workouts.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "create", "update", "delete"],
+          description: "Action to perform"
         },
-        required: ["action"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "manage_plans",
-      description: "Manage training plans (create, read, update, delete). Plans link workouts to specific time periods.",
-      parameters: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: ["list", "create", "update", "delete"],
-            description: "Action to perform"
-          },
-          plan_id: { type: "string", description: "UUID of plan (required for update, delete)" },
-          name: { type: "string", description: "Plan name (required for create, optional for update)" },
-          workout_id: { type: "string", description: "UUID of workout (required for create)" },
-          duration_weeks: { type: "number", description: "Duration in weeks (required for create)" },
-          start_date: { type: "string", description: "Start date YYYY-MM-DD (optional for create)" },
-          is_active: { type: "boolean", description: "Active status (optional for update)" }
-        },
-        required: ["action"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "manage_sessions",
-      description: "Manage workout sessions (create, read, update, delete, finish). Sessions track actual workouts performed.",
-      parameters: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: ["list", "get", "create", "finish", "delete"],
-            description: "Action to perform"
-          },
-          session_id: { type: "string", description: "UUID of session (required for get, finish, delete)" },
-          workout_id: { type: "string", description: "UUID of workout (required for create)" },
-          plan_id: { type: "string", description: "UUID of plan (optional for create)" },
-          title: { type: "string", description: "Session title (required for create)" },
-          day_dow: { type: "string", description: "Day of week (optional for create)" },
-          limit: { type: "number", description: "Max results for list (default 50)" },
-          finished_only: { type: "boolean", description: "Only show completed sessions (for list)" }
-        },
-        required: ["action"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "manage_workout_structure",
-      description: "Manage workout structure: days, groups, and items. Use this to build workout templates.",
-      parameters: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: [
-              "create_day", "delete_day",
-              "create_group", "update_group", "delete_group",
-              "create_item", "update_item", "delete_item"
-            ],
-            description: "Action to perform on workout structure"
-          },
-          // Day fields
-          workout_id: { type: "string", description: "UUID of workout (for create_day)" },
-          dow: { type: "string", description: "Day of week (for create_day)" },
-          workout_day_id: { type: "string", description: "UUID of workout day (for delete_day, create_group)" },
-          // Group fields
-          workout_group_id: { type: "string", description: "UUID of workout group (for update_group, delete_group, create_item)" },
-          group_name: { type: "string", description: "Group name (for create_group, update_group)" },
-          group_type: {
-            type: "string",
-            enum: ["straight_set", "superset", "circuit"],
-            description: "Group type (for create_group)"
-          },
-          rest_seconds: { type: "number", description: "Rest time (for create_group, update_group)" },
-          // Item fields
-          workout_item_id: { type: "string", description: "UUID of workout item (for update_item, delete_item)" },
-          exercise_id: { type: "string", description: "UUID of exercise (for create_item)" },
-          target_sets: { type: "number", description: "Target sets (for create_item, update_item)" },
-          target_reps: { type: "number", description: "Target reps (for create_item, update_item)" },
-          target_weight: { type: "number", description: "Target weight (for create_item, update_item)" },
-          rest_seconds_override: { type: "number", description: "Override rest time (for create_item, update_item)" },
-          notes: { type: "string", description: "Notes (for create_item, update_item)" },
-          position: { type: "number", description: "Order position (optional)" }
-        },
-        required: ["action"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "manage_session_data",
-      description: "Manage active session data: groups, items, and completed sets. Use this during live workouts.",
-      parameters: {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: [
-              "create_group", "create_item",
-              "log_set", "update_set", "delete_set"
-            ],
-            description: "Action to perform on session data"
-          },
-          // Session group fields
-          session_id: { type: "string", description: "UUID of session (for create_group)" },
-          group_name: { type: "string", description: "Group name (for create_group)" },
-          group_type: {
-            type: "string",
-            enum: ["straight_set", "superset", "circuit"],
-            description: "Group type (for create_group)"
-          },
-          rest_seconds: { type: "number", description: "Rest time (for create_group)" },
-          // Session item fields
-          session_group_id: { type: "string", description: "UUID of session group (for create_item)" },
-          exercise_name: { type: "string", description: "Exercise name (for create_item)" },
-          target_sets: { type: "number", description: "Target sets (for create_item)" },
-          target_reps: { type: "number", description: "Target reps (for create_item)" },
-          target_weight: { type: "number", description: "Target weight (for create_item)" },
-          // Completed set fields
-          session_item_id: { type: "string", description: "UUID of session item (for log_set)" },
-          set_id: { type: "string", description: "UUID of completed set (for update_set, delete_set)" },
-          set_number: { type: "number", description: "Set number 1,2,3... (for log_set)" },
-          weight: { type: "number", description: "Weight used (for log_set, update_set)" },
-          reps: { type: "number", description: "Reps completed (for log_set, update_set)" },
-          notes: { type: "string", description: "Notes (for create_item)" },
-          position: { type: "number", description: "Order position (optional)" }
-        },
-        required: ["action"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_user_settings",
-      description: "Get user's custom system instructions and preferences.",
-      parameters: { type: "object", properties: {}, required: [] }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "update_user_settings",
-      description: "Update user's custom system instructions and preferences.",
-      parameters: {
-        type: "object",
-        properties: {
-          system_instructions: { type: "string", description: "Custom instructions for the AI trainer" }
-        },
-        required: ["system_instructions"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "create_complete_workout",
-      description: "Create a complete workout with all days, groups, and exercises in ONE call. Use this instead of manually creating structure piece by piece. Much faster and safer than using manage_workout_structure repeatedly.",
-      parameters: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Workout name (required)" },
-          summary: { type: "string", description: "Workout description (optional)" },
-          days: {
-            type: "array",
-            description: "Array of workout days with groups and exercises",
-            items: {
-              type: "object",
-              properties: {
-                dow: {
-                  type: "string",
-                  enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-                  description: "Day of week"
-                },
-                position: { type: "number", description: "Order position (default: 1)" },
-                groups: {
-                  type: "array",
-                  description: "Exercise groups for this day",
-                  items: {
-                    type: "object",
-                    properties: {
-                      name: { type: "string", description: "Group name (e.g., 'Chest & Triceps')" },
-                      group_type: {
-                        type: "string",
-                        enum: ["single", "superset", "triset", "circuit"],
-                        description: "Type of grouping"
-                      },
-                      rest_seconds: { type: "number", description: "Rest time between sets" },
-                      position: { type: "number", description: "Order position" },
-                      exercises: {
-                        type: "array",
-                        description: "Exercises in this group",
-                        items: {
-                          type: "object",
-                          properties: {
-                            name: { type: "string", description: "Exercise name (will be created if doesn't exist)" },
-                            category: {
-                              type: "string",
-                              enum: ["strength", "cardio", "flexibility", "balance"],
-                              description: "Exercise category (default: strength)"
-                            },
-                            instructions: { type: "string", description: "How to perform the exercise" },
-                            target_sets: { type: "number", description: "Target number of sets" },
-                            target_reps: { type: "number", description: "Target number of reps" },
-                            target_weight: { type: "number", description: "Target weight in kg" },
-                            rest_seconds_override: { type: "number", description: "Override group rest time for this exercise" },
-                            notes: { type: "string", description: "Exercise notes" },
-                            position: { type: "number", description: "Order position" }
-                          },
-                          required: ["name"]
-                        }
-                      }
-                    },
-                    required: ["name", "group_type", "exercises"]
-                  }
-                }
-              },
-              required: ["dow", "groups"]
-            }
-          }
-        },
-        required: ["name", "days"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "start_session_from_workout",
-      description: "Start a new workout session from a workout template. Automatically copies the workout structure and prepares it for logging sets. Much easier than manually creating sessions.",
-      parameters: {
-        type: "object",
-        properties: {
-          workout_id: { type: "string", description: "UUID of the workout template to use (required)" },
-          plan_id: { type: "string", description: "UUID of the training plan (optional)" },
-          dow: {
-            type: "string",
-            enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-            description: "Day of week (optional, defaults to today)"
-          },
-          title: { type: "string", description: "Custom session title (optional, auto-generated if not provided)" }
-        },
-        required: ["workout_id"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_exercise_history",
-      description: "Get comprehensive history for a specific exercise including all past sessions, sets, PRs, and progress statistics. Use this to answer questions about exercise performance over time.",
-      parameters: {
-        type: "object",
-        properties: {
-          exercise_name: { type: "string", description: "Name of the exercise (required)" },
-          start_date: { type: "string", description: "Start date in ISO format (optional, defaults to 3 months ago)" },
-          end_date: { type: "string", description: "End date in ISO format (optional, defaults to today)" },
-          limit: { type: "number", description: "Maximum number of sessions to return (default: 50)" }
-        },
-        required: ["exercise_name"]
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_workout_analytics",
-      description: "Get comprehensive analytics including volume trends, top exercises, personal records, and workout frequency. Use this to answer questions about overall progress and performance.",
-      parameters: {
-        type: "object",
-        properties: {
-          start_date: { type: "string", description: "Start date in ISO format (optional, defaults to 3 months ago)" },
-          end_date: { type: "string", description: "End date in ISO format (optional, defaults to today)" },
-          workout_id: { type: "string", description: "Filter analytics to a specific workout (optional)" }
+        exercise_id: { type: "string", description: "UUID of exercise (required for update, delete)" },
+        name: { type: "string", description: "Exercise name (required for create, optional for update)" },
+        instructions: { type: "string", description: "How to perform the exercise" },
+        category: {
+          type: "string",
+          enum: ["strength", "cardio", "flexibility", "balance"],
+          description: "Exercise category (required for create, optional for update)"
         }
+      },
+      required: ["action"]
+    }
+  },
+  {
+    name: "manage_plans",
+    description: "Manage training plans (create, read, update, delete). Plans link workouts to specific time periods.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "create", "update", "delete"],
+          description: "Action to perform"
+        },
+        plan_id: { type: "string", description: "UUID of plan (required for update, delete)" },
+        name: { type: "string", description: "Plan name (required for create, optional for update)" },
+        workout_id: { type: "string", description: "UUID of workout (required for create)" },
+        duration_weeks: { type: "number", description: "Duration in weeks (required for create)" },
+        start_date: { type: "string", description: "Start date YYYY-MM-DD (optional for create)" },
+        is_active: { type: "boolean", description: "Active status (optional for update)" }
+      },
+      required: ["action"]
+    }
+  },
+  {
+    name: "manage_sessions",
+    description: "Manage workout sessions (create, read, update, delete, finish). Sessions track actual workouts performed.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "get", "create", "finish", "delete"],
+          description: "Action to perform"
+        },
+        session_id: { type: "string", description: "UUID of session (required for get, finish, delete)" },
+        workout_id: { type: "string", description: "UUID of workout (required for create)" },
+        plan_id: { type: "string", description: "UUID of plan (optional for create)" },
+        title: { type: "string", description: "Session title (required for create)" },
+        day_dow: { type: "string", description: "Day of week (optional for create)" },
+        limit: { type: "number", description: "Max results for list (default 50)" },
+        finished_only: { type: "boolean", description: "Only show completed sessions (for list)" }
+      },
+      required: ["action"]
+    }
+  },
+  {
+    name: "manage_workout_structure",
+    description: "Manage workout structure: days, groups, and items. Use this to build workout templates.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: [
+            "create_day", "delete_day",
+            "create_group", "update_group", "delete_group",
+            "create_item", "update_item", "delete_item"
+          ],
+          description: "Action to perform on workout structure"
+        },
+        workout_id: { type: "string", description: "UUID of workout (for create_day)" },
+        dow: { type: "string", description: "Day of week (for create_day)" },
+        workout_day_id: { type: "string", description: "UUID of workout day (for delete_day, create_group)" },
+        workout_group_id: { type: "string", description: "UUID of workout group (for update_group, delete_group, create_item)" },
+        group_name: { type: "string", description: "Group name (for create_group, update_group)" },
+        group_type: {
+          type: "string",
+          enum: ["straight_set", "superset", "circuit"],
+          description: "Group type (for create_group)"
+        },
+        rest_seconds: { type: "number", description: "Rest time (for create_group, update_group)" },
+        workout_item_id: { type: "string", description: "UUID of workout item (for update_item, delete_item)" },
+        exercise_id: { type: "string", description: "UUID of exercise (for create_item)" },
+        target_sets: { type: "number", description: "Target sets (for create_item, update_item)" },
+        target_reps: { type: "number", description: "Target reps (for create_item, update_item)" },
+        target_weight: { type: "number", description: "Target weight (for create_item, update_item)" },
+        rest_seconds_override: { type: "number", description: "Override rest time (for create_item, update_item)" },
+        notes: { type: "string", description: "Notes (for create_item, update_item)" },
+        position: { type: "number", description: "Order position (optional)" }
+      },
+      required: ["action"]
+    }
+  },
+  {
+    name: "manage_session_data",
+    description: "Manage active session data: groups, items, and completed sets. Use this during live workouts.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: [
+            "create_group", "create_item",
+            "log_set", "update_set", "delete_set"
+          ],
+          description: "Action to perform on session data"
+        },
+        session_id: { type: "string", description: "UUID of session (for create_group)" },
+        group_name: { type: "string", description: "Group name (for create_group)" },
+        group_type: {
+          type: "string",
+          enum: ["straight_set", "superset", "circuit"],
+          description: "Group type (for create_group)"
+        },
+        rest_seconds: { type: "number", description: "Rest time (for create_group)" },
+        session_group_id: { type: "string", description: "UUID of session group (for create_item)" },
+        exercise_name: { type: "string", description: "Exercise name (for create_item)" },
+        target_sets: { type: "number", description: "Target sets (for create_item)" },
+        target_reps: { type: "number", description: "Target reps (for create_item)" },
+        target_weight: { type: "number", description: "Target weight (for create_item)" },
+        session_item_id: { type: "string", description: "UUID of session item (for log_set)" },
+        set_id: { type: "string", description: "UUID of completed set (for update_set, delete_set)" },
+        set_number: { type: "number", description: "Set number 1,2,3... (for log_set)" },
+        weight: { type: "number", description: "Weight used (for log_set, update_set)" },
+        reps: { type: "number", description: "Reps completed (for log_set, update_set)" },
+        notes: { type: "string", description: "Notes (for create_item)" },
+        position: { type: "number", description: "Order position (optional)" }
+      },
+      required: ["action"]
+    }
+  },
+  {
+    name: "get_user_settings",
+    description: "Get user's custom system instructions and preferences.",
+    parameters: { type: "object", properties: {}, required: [] }
+  },
+  {
+    name: "update_user_settings",
+    description: "Update user's custom system instructions and preferences.",
+    parameters: {
+      type: "object",
+      properties: {
+        system_instructions: { type: "string", description: "Custom instructions for the AI trainer" }
+      },
+      required: ["system_instructions"]
+    }
+  },
+  {
+    name: "create_complete_workout",
+    description: "Create a complete workout with all days, groups, and exercises in ONE call. Use this instead of manually creating structure piece by piece. Much faster and safer than using manage_workout_structure repeatedly.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Workout name (required)" },
+        summary: { type: "string", description: "Workout description (optional)" },
+        days: {
+          type: "array",
+          description: "Array of workout days with groups and exercises",
+          items: {
+            type: "object",
+            properties: {
+              dow: {
+                type: "string",
+                enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+                description: "Day of week"
+              },
+              position: { type: "number", description: "Order position (default: 1)" },
+              groups: {
+                type: "array",
+                description: "Exercise groups for this day",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string", description: "Group name (e.g., 'Chest & Triceps')" },
+                    group_type: {
+                      type: "string",
+                      enum: ["single", "superset", "triset", "circuit"],
+                      description: "Type of grouping"
+                    },
+                    rest_seconds: { type: "number", description: "Rest time between sets" },
+                    position: { type: "number", description: "Order position" },
+                    exercises: {
+                      type: "array",
+                      description: "Exercises in this group",
+                      items: {
+                        type: "object",
+                        properties: {
+                          name: { type: "string", description: "Exercise name (will be created if doesn't exist)" },
+                          category: {
+                            type: "string",
+                            enum: ["strength", "cardio", "flexibility", "balance"],
+                            description: "Exercise category (default: strength)"
+                          },
+                          instructions: { type: "string", description: "How to perform the exercise" },
+                          target_sets: { type: "number", description: "Target number of sets" },
+                          target_reps: { type: "number", description: "Target number of reps" },
+                          target_weight: { type: "number", description: "Target weight in kg" },
+                          rest_seconds_override: { type: "number", description: "Override group rest time for this exercise" },
+                          notes: { type: "string", description: "Exercise notes" },
+                          position: { type: "number", description: "Order position" }
+                        },
+                        required: ["name"]
+                      }
+                    }
+                  },
+                  required: ["name", "group_type", "exercises"]
+                }
+              }
+            },
+            required: ["dow", "groups"]
+          }
+        }
+      },
+      required: ["name", "days"]
+    }
+  },
+  {
+    name: "start_session_from_workout",
+    description: "Start a new workout session from a workout template. Automatically copies the workout structure and prepares it for logging sets. Much easier than manually creating sessions.",
+    parameters: {
+      type: "object",
+      properties: {
+        workout_id: { type: "string", description: "UUID of the workout template to use (required)" },
+        plan_id: { type: "string", description: "UUID of the training plan (optional)" },
+        dow: {
+          type: "string",
+          enum: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+          description: "Day of week (optional, defaults to today)"
+        },
+        title: { type: "string", description: "Custom session title (optional, auto-generated if not provided)" }
+      },
+      required: ["workout_id"]
+    }
+  },
+  {
+    name: "get_exercise_history",
+    description: "Get comprehensive history for a specific exercise including all past sessions, sets, PRs, and progress statistics. Use this to answer questions about exercise performance over time.",
+    parameters: {
+      type: "object",
+      properties: {
+        exercise_name: { type: "string", description: "Name of the exercise (required)" },
+        start_date: { type: "string", description: "Start date in ISO format (optional, defaults to 3 months ago)" },
+        end_date: { type: "string", description: "End date in ISO format (optional, defaults to today)" },
+        limit: { type: "number", description: "Maximum number of sessions to return (default: 50)" }
+      },
+      required: ["exercise_name"]
+    }
+  },
+  {
+    name: "get_workout_analytics",
+    description: "Get comprehensive analytics including volume trends, top exercises, personal records, and workout frequency. Use this to answer questions about overall progress and performance.",
+    parameters: {
+      type: "object",
+      properties: {
+        start_date: { type: "string", description: "Start date in ISO format (optional, defaults to 3 months ago)" },
+        end_date: { type: "string", description: "End date in ISO format (optional, defaults to today)" },
+        workout_id: { type: "string", description: "Filter analytics to a specific workout (optional)" }
       }
     }
   },
   {
-    type: "function",
-    function: {
-      name: "clone_workout",
-      description: "Create a copy of an existing workout with optional modifications like weight scaling (for deload weeks) or rep adjustments. Useful for creating workout variations.",
-      parameters: {
-        type: "object",
-        properties: {
-          workout_id: { type: "string", description: "UUID of the workout to clone (required)" },
-          new_name: { type: "string", description: "Name for the cloned workout (required)" },
-          scale_weights: { type: "number", description: "Multiply all weights by this factor (optional, default: 1.0, e.g., 0.8 for deload)" },
-          change_reps: { type: "number", description: "Add/subtract this many reps to all exercises (optional, default: 0)" }
-        },
-        required: ["workout_id", "new_name"]
-      }
+    name: "clone_workout",
+    description: "Create a copy of an existing workout with optional modifications like weight scaling (for deload weeks) or rep adjustments. Useful for creating workout variations.",
+    parameters: {
+      type: "object",
+      properties: {
+        workout_id: { type: "string", description: "UUID of the workout to clone (required)" },
+        new_name: { type: "string", description: "Name for the cloned workout (required)" },
+        scale_weights: { type: "number", description: "Multiply all weights by this factor (optional, default: 1.0, e.g., 0.8 for deload)" },
+        change_reps: { type: "number", description: "Add/subtract this many reps to all exercises (optional, default: 0)" }
+      },
+      required: ["workout_id", "new_name"]
     }
   }
 ];
@@ -1541,140 +1414,154 @@ Be conversational, encouraging, and provide specific, actionable advice based on
       ? `${baseSystemPrompt}\n\nCustom Instructions: ${settings.system_instructions}`
       : baseSystemPrompt;
 
-    const response = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...messages
-        ],
-        tools,
-        tool_choice: 'auto'
-      }),
+    // Initialize Google Generative AI
+    const genAI = new GoogleGenerativeAI(GOOGLE_API_KEY!);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.0-flash-exp",
+      systemInstruction: systemPrompt,
+      tools: [{ functionDeclarations: tools }],
     });
 
-    if (!response.ok) {
-      const errorMessage = await parseAPIError(response);
-      console.error('AI gateway error:', response.status, errorMessage);
-      throw new Error(`AI service error (${response.status}): ${errorMessage}`);
-    }
+    // Convert messages from OpenAI format to Gemini format
+    // Gemini expects alternating user/model roles
+    const geminiMessages = messages.map((msg: any) => {
+      if (msg.role === 'system') {
+        // Skip system messages as they're in systemInstruction
+        return null;
+      }
+      return {
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      };
+    }).filter((msg: any) => msg !== null);
 
-    const aiResponse = await response.json();
+    // Start chat session
+    const chat = model.startChat({
+      history: geminiMessages.slice(0, -1), // All messages except the last
+    });
 
-    // Handle edge cases: Check if response structure is valid
-    if (!aiResponse.choices || !Array.isArray(aiResponse.choices) || aiResponse.choices.length === 0) {
-      console.error('Invalid AI response structure:', aiResponse);
-      throw new Error('AI service returned an invalid response structure');
-    }
+    // Send the last message and get streaming response
+    const lastMessage = geminiMessages[geminiMessages.length - 1];
+    const result = await chat.sendMessageStream(lastMessage.parts);
 
-    const message = aiResponse.choices[0]?.message;
-    if (!message) {
-      console.error('Missing message in AI response:', aiResponse);
-      throw new Error('AI service returned a response without a message');
-    }
-
-    // Handle tool calls
-    if (message.tool_calls && message.tool_calls.length > 0) {
-      const toolResults = [];
-      const toolFailures: string[] = [];
-
-      for (const toolCall of message.tool_calls) {
+    // Stream the response
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
         try {
-          const args = JSON.parse(toolCall.function.arguments);
-          const result = await handleToolCall(
-            toolCall.function.name,
-            args,
-            user.id,
-            supabase
-          );
+          let fullText = '';
+          let functionCalls: any[] = [];
 
-          // Track failed tools
-          if (!result.success) {
-            toolFailures.push(`${toolCall.function.name}: ${result.error}`);
+          // Collect all chunks
+          for await (const chunk of result.stream) {
+            const chunkText = chunk.text();
+            if (chunkText) {
+              fullText += chunkText;
+
+              // Send streaming chunk to client in OpenAI-compatible format
+              const streamChunk = {
+                choices: [{
+                  delta: { content: chunkText },
+                  index: 0
+                }]
+              };
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(streamChunk)}\n\n`));
+            }
+
+            // Check for function calls
+            if (chunk.functionCalls && chunk.functionCalls().length > 0) {
+              functionCalls = chunk.functionCalls();
+            }
           }
 
-          // Truncate large results to prevent issues
-          const resultString = JSON.stringify(result);
-          const truncatedResult = resultString.length > 50000
-            ? resultString.substring(0, 50000) + '...[truncated]'
-            : resultString;
+          // Handle function calls if present
+          if (functionCalls.length > 0) {
+            console.log('Function calls detected:', functionCalls.map(fc => fc.name));
 
-          toolResults.push({
-            tool_call_id: toolCall.id,
-            role: 'tool',
-            name: toolCall.function.name,
-            content: truncatedResult
-          });
+            const functionResponses = [];
+            const toolFailures: string[] = [];
+
+            for (const functionCall of functionCalls) {
+              try {
+                const result = await handleToolCall(
+                  functionCall.name,
+                  functionCall.args,
+                  user.id,
+                  supabase
+                );
+
+                // Track failed tools
+                if (!result.success) {
+                  toolFailures.push(`${functionCall.name}: ${result.error}`);
+                }
+
+                // Truncate large results
+                const resultString = JSON.stringify(result);
+                const truncatedResult = resultString.length > 50000
+                  ? resultString.substring(0, 50000) + '...[truncated]'
+                  : resultString;
+
+                functionResponses.push({
+                  name: functionCall.name,
+                  response: { result: truncatedResult }
+                });
+              } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                toolFailures.push(`${functionCall.name}: ${errorMessage}`);
+
+                functionResponses.push({
+                  name: functionCall.name,
+                  response: {
+                    result: JSON.stringify({
+                      success: false,
+                      error: errorMessage
+                    })
+                  }
+                });
+              }
+            }
+
+            // Log tool failures
+            if (toolFailures.length > 0) {
+              console.warn('Tool execution failures:', toolFailures);
+            }
+
+            // Send function responses back to model and stream final response
+            const finalResult = await chat.sendMessageStream({
+              functionResponses
+            });
+
+            for await (const chunk of finalResult.stream) {
+              const chunkText = chunk.text();
+              if (chunkText) {
+                const streamChunk = {
+                  choices: [{
+                    delta: { content: chunkText },
+                    index: 0
+                  }]
+                };
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(streamChunk)}\n\n`));
+              }
+            }
+          }
+
+          // Send done signal
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+          controller.close();
         } catch (error) {
-          // Handle JSON parse errors or other tool execution errors
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          toolFailures.push(`${toolCall.function.name}: ${errorMessage}`);
-
-          toolResults.push({
-            tool_call_id: toolCall.id,
-            role: 'tool',
-            name: toolCall.function.name,
-            content: JSON.stringify({
-              success: false,
-              error: errorMessage
-            })
-          });
+          console.error('Streaming error:', error);
+          controller.error(error);
         }
       }
+    });
 
-      // Log tool failures for monitoring
-      if (toolFailures.length > 0) {
-        console.warn('Tool execution failures:', toolFailures);
+    return new Response(stream, {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
       }
-
-      // Continue with AI response even if some tools failed
-      // The AI will see the failure results and can respond appropriately
-      const finalResponse = await fetchWithTimeout('https://ai.gateway.lovable.dev/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'google/gemini-2.5-flash',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages,
-            message,
-            ...toolResults
-          ]
-        }),
-      });
-
-      if (!finalResponse.ok) {
-        const errorMessage = await parseAPIError(finalResponse);
-        console.error('AI gateway error on final response:', finalResponse.status, errorMessage);
-        throw new Error(`AI service error on final response (${finalResponse.status}): ${errorMessage}`);
-      }
-
-      const finalAiResponse = await finalResponse.json();
-      
-      // Validate final response structure
-      if (!finalAiResponse.choices || !Array.isArray(finalAiResponse.choices) || finalAiResponse.choices.length === 0) {
-        console.error('Invalid AI final response structure:', finalAiResponse);
-        throw new Error('AI service returned an invalid final response structure');
-      }
-
-      return new Response(JSON.stringify(finalAiResponse), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    // No tool calls - return the non-streaming response
-    // For simplicity, we keep this non-streaming for now
-    // Future improvement: make the first request streaming and handle tool detection in stream
-    return new Response(JSON.stringify(aiResponse), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
