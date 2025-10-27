@@ -50,7 +50,7 @@ export default function Trainer() {
       }
 
       // Call the streaming function
-      const response = await fetch(`${supabase.supabaseUrl}/functions/v1/ai-trainer`, {
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-trainer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

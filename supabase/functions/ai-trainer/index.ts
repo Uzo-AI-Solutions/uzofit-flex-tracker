@@ -1,7 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { GoogleGenerativeAI } from "npm:@google/generative-ai@^0.21.0";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1414,138 +1413,167 @@ Be conversational, encouraging, and provide specific, actionable advice based on
       ? `${baseSystemPrompt}\n\nCustom Instructions: ${settings.system_instructions}`
       : baseSystemPrompt;
 
-    // Initialize Google Generative AI
-    const genAI = new GoogleGenerativeAI(LOVABLE_API_KEY!);
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-exp",
-      systemInstruction: systemPrompt,
-      tools: [{ functionDeclarations: tools }],
+    // Call Lovable AI Gateway with streaming
+    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages
+        ],
+        tools: tools.map((tool: any) => ({
+          type: 'function',
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters
+          }
+        })),
+        stream: true
+      }),
     });
 
-    // Convert messages from OpenAI format to Gemini format
-    // Gemini expects alternating user/model roles
-    const geminiMessages = messages.map((msg: any) => {
-      if (msg.role === 'system') {
-        // Skip system messages as they're in systemInstruction
-        return null;
-      }
-      return {
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }]
-      };
-    }).filter((msg: any) => msg !== null);
+    if (!aiResponse.ok) {
+      throw new Error(`AI Gateway error: ${aiResponse.status} ${await aiResponse.text()}`);
+    }
 
-    // Start chat session
-    const chat = model.startChat({
-      history: geminiMessages.slice(0, -1), // All messages except the last
-    });
-
-    // Send the last message and get streaming response
-    const lastMessage = geminiMessages[geminiMessages.length - 1];
-    const result = await chat.sendMessageStream(lastMessage.parts);
+    if (!aiResponse.body) {
+      throw new Error('No response body from AI Gateway');
+    }
 
     // Stream the response
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          let fullText = '';
-          let functionCalls: any[] = [];
+          const reader = aiResponse.body!.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let pendingToolCalls: any[] = [];
 
-          // Collect all chunks
-          for await (const chunk of result.stream) {
-            const chunkText = chunk.text();
-            if (chunkText) {
-              fullText += chunkText;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-              // Send streaming chunk to client in OpenAI-compatible format
-              const streamChunk = {
-                choices: [{
-                  delta: { content: chunkText },
-                  index: 0
-                }]
-              };
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(streamChunk)}\n\n`));
-            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
 
-            // Check for function calls
-            if (chunk.functionCalls && chunk.functionCalls().length > 0) {
-              functionCalls = chunk.functionCalls();
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6).trim();
+                if (data === '[DONE]') continue;
+
+                try {
+                  const parsed = JSON.parse(data);
+                  
+                  // Check for tool calls
+                  if (parsed.choices?.[0]?.delta?.tool_calls) {
+                    pendingToolCalls.push(...parsed.choices[0].delta.tool_calls);
+                  }
+
+                  // Stream content if available
+                  if (parsed.choices?.[0]?.delta?.content) {
+                    controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                  }
+                } catch (e) {
+                  console.error('Failed to parse SSE:', e);
+                }
+              }
             }
           }
 
-          // Handle function calls if present
-          if (functionCalls.length > 0) {
-            console.log('Function calls detected:', functionCalls.map(fc => fc.name));
+          // Handle tool calls if any
+          if (pendingToolCalls.length > 0) {
+            console.log('Tool calls detected:', pendingToolCalls.map((tc: any) => tc.function?.name));
 
             const functionResponses = [];
-            const toolFailures: string[] = [];
+            for (const toolCall of pendingToolCalls) {
+              if (!toolCall.function?.name) continue;
 
-            for (const functionCall of functionCalls) {
               try {
+                const args = JSON.parse(toolCall.function.arguments || '{}');
                 const result = await handleToolCall(
-                  functionCall.name,
-                  functionCall.args,
+                  toolCall.function.name,
+                  args,
                   user.id,
                   supabase
                 );
 
-                // Track failed tools
-                if (!result.success) {
-                  toolFailures.push(`${functionCall.name}: ${result.error}`);
-                }
-
-                // Truncate large results
-                const resultString = JSON.stringify(result);
-                const truncatedResult = resultString.length > 50000
-                  ? resultString.substring(0, 50000) + '...[truncated]'
-                  : resultString;
-
                 functionResponses.push({
-                  name: functionCall.name,
-                  response: { result: truncatedResult }
+                  tool_call_id: toolCall.id,
+                  role: 'tool',
+                  name: toolCall.function.name,
+                  content: JSON.stringify(result)
                 });
               } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-                toolFailures.push(`${functionCall.name}: ${errorMessage}`);
-
+                console.error(`Tool call ${toolCall.function.name} failed:`, error);
                 functionResponses.push({
-                  name: functionCall.name,
-                  response: {
-                    result: JSON.stringify({
-                      success: false,
-                      error: errorMessage
-                    })
-                  }
+                  tool_call_id: toolCall.id,
+                  role: 'tool',
+                  name: toolCall.function.name,
+                  content: JSON.stringify({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                  })
                 });
               }
             }
 
-            // Log tool failures
-            if (toolFailures.length > 0) {
-              console.warn('Tool execution failures:', toolFailures);
-            }
-
-            // Send function responses back to model and stream final response
-            const finalResult = await chat.sendMessageStream({
-              functionResponses
+            // Call AI again with tool results
+            const finalResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-2.5-flash',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  ...messages,
+                  ...functionResponses
+                ],
+                stream: true
+              }),
             });
 
-            for await (const chunk of finalResult.stream) {
-              const chunkText = chunk.text();
-              if (chunkText) {
-                const streamChunk = {
-                  choices: [{
-                    delta: { content: chunkText },
-                    index: 0
-                  }]
-                };
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify(streamChunk)}\n\n`));
+            if (finalResponse.ok && finalResponse.body) {
+              const finalReader = finalResponse.body.getReader();
+              let finalBuffer = '';
+
+              while (true) {
+                const { done, value } = await finalReader.read();
+                if (done) break;
+
+                finalBuffer += decoder.decode(value, { stream: true });
+                const finalLines = finalBuffer.split('\n');
+                finalBuffer = finalLines.pop() || '';
+
+                for (const line of finalLines) {
+                  if (line.startsWith('data: ')) {
+                    const data = line.slice(6).trim();
+                    if (data === '[DONE]') continue;
+
+                    try {
+                      const parsed = JSON.parse(data);
+                      if (parsed.choices?.[0]?.delta?.content) {
+                        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                      }
+                    } catch (e) {
+                      console.error('Failed to parse final SSE:', e);
+                    }
+                  }
+                }
               }
             }
           }
 
-          // Send done signal
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         } catch (error) {
