@@ -32,25 +32,6 @@ export default function Trainer() {
     scrollToBottom();
   }, [messages]);
 
-  const handleToolCall = async (toolCall: any) => {
-    console.log('Executing tool:', toolCall);
-    
-      const { data, error } = await supabase.functions.invoke('ai-trainer', {
-        body: {
-          action: 'execute_tool',
-          tool_name: toolCall.function.name,
-          tool_arguments: JSON.parse(toolCall.function.arguments)
-        }
-      });
-
-    if (error) {
-      console.error('Tool execution error:', error);
-      throw error;
-    }
-
-    return data;
-  };
-
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
 
@@ -61,62 +42,89 @@ export default function Trainer() {
 
     try {
       const conversationMessages = [...messages, userMessage];
-      
-      let continueProcessing = true;
-      let currentMessages = conversationMessages;
-      
-      while (continueProcessing) {
-        const { data, error } = await supabase.functions.invoke('ai-trainer', {
-          body: { messages: currentMessages }
-        });
 
-        if (error) throw error;
+      // Get auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session');
+      }
 
-        const choice = data.choices[0];
-        const assistantMessage = choice.message;
+      // Call the streaming function
+      const response = await fetch(`${supabase.supabaseUrl}/functions/v1/ai-trainer`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ messages: conversationMessages }),
+      });
 
-        // Check if AI wants to use a tool
-        if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
-          console.log('AI requested tool calls:', assistantMessage.tool_calls);
-          
-          // Execute all tool calls
-          const toolResults = await Promise.all(
-            assistantMessage.tool_calls.map(async (toolCall: any) => {
-              const result = await handleToolCall(toolCall);
-              return {
-                tool_call_id: toolCall.id,
-                role: 'tool',
-                name: toolCall.function.name,
-                content: JSON.stringify(result)
-              };
-            })
-          );
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error: ${response.status} ${errorText}`);
+      }
 
-          // Add assistant message with tool calls to conversation
-          currentMessages = [
-            ...currentMessages,
-            assistantMessage,
-            ...toolResults
-          ];
-          
-          // Continue the loop to get the final response
-          continue;
-        }
+      if (!response.body) {
+        throw new Error('Response body is not readable');
+      }
 
-        // No more tool calls, display the final message
-        if (assistantMessage.content) {
-          setMessages(prev => [...prev, { role: 'assistant', content: assistantMessage.content }]);
-          
-          // Show success toast if a workout was created or session logged
-          if (assistantMessage.content.includes('created') || assistantMessage.content.includes('logged')) {
-            toast({
-              title: 'Success!',
-              description: 'Action completed successfully',
-            });
+      // Read the streaming response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullContent = '';
+
+      // Add a placeholder message that we'll update as we stream
+      const placeholderIndex = messages.length + 1;
+      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+
+              if (data === '[DONE]') {
+                break;
+              }
+
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.choices && parsed.choices[0]?.delta?.content) {
+                  const content = parsed.choices[0].delta.content;
+                  fullContent += content;
+
+                  // Update the message with the accumulated content
+                  setMessages(prev => {
+                    const newMessages = [...prev];
+                    newMessages[placeholderIndex] = { role: 'assistant', content: fullContent };
+                    return newMessages;
+                  });
+                }
+              } catch (e) {
+                console.error('Failed to parse SSE data:', data, e);
+              }
+            }
           }
         }
-        
-        continueProcessing = false;
+      } finally {
+        reader.releaseLock();
+      }
+
+      // Show success toast if appropriate
+      if (fullContent.includes('created') || fullContent.includes('logged') || fullContent.includes('completed')) {
+        toast({
+          title: 'Success!',
+          description: 'Action completed successfully',
+        });
       }
 
     } catch (error) {
