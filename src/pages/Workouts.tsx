@@ -56,16 +56,16 @@ export default function Workouts() {
 
   return (
     <Layout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="space-y-6 px-4 md:px-0">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Workouts</h1>
-            <p className="text-muted-foreground">Manage your workout programs</p>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Workouts</h1>
+            <p className="text-sm sm:text-base text-muted-foreground">Manage your workout programs</p>
           </div>
           <Link to="/workouts/create">
-            <Button className="gap-2">
+            <Button className="gap-2 w-full sm:w-auto">
               <Plus className="h-4 w-4" />
-              New Workout
+              <span className="sm:inline">New Workout</span>
             </Button>
           </Link>
         </div>
@@ -75,58 +75,51 @@ export default function Workouts() {
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
           </div>
         ) : workouts && workouts.length > 0 ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {workouts.map((workout) => (
-              <Card key={workout.id} className="h-full transition-all hover:shadow-elevated">
-                <Link to={`/workouts/${workout.id}`} className="block">
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <CardTitle className="flex items-center gap-2">
-                          <Dumbbell className="h-5 w-5 text-primary flex-shrink-0" />
-                          <span className="truncate">{workout.name}</span>
-                        </CardTitle>
-                        {workout.summary && (
-                          <CardDescription className="mt-2">{workout.summary}</CardDescription>
-                        )}
-                      </div>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild onClick={(e) => e.preventDefault()}>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 flex-shrink-0"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                            }}
+              <Card key={workout.id} className="h-full transition-all hover:shadow-elevated relative">
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-2">
+                    <Link to={`/workouts/${workout.id}`} className="flex-1 min-w-0">
+                      <CardTitle className="flex items-center gap-2">
+                        <Dumbbell className="h-5 w-5 text-primary flex-shrink-0" />
+                        <span className="truncate">{workout.name}</span>
+                      </CardTitle>
+                      {workout.summary && (
+                        <CardDescription className="mt-2 line-clamp-2">{workout.summary}</CardDescription>
+                      )}
+                    </Link>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 flex-shrink-0"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="max-w-[90vw] sm:max-w-md">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete workout?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will permanently delete "{workout.name}". This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                          <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => deleteWorkout.mutate(workout.id)}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 w-full sm:w-auto"
                           >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete workout?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              This will permanently delete "{workout.name}". This action cannot be undone.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={(e) => {
-                                e.preventDefault();
-                                deleteWorkout.mutate(workout.id);
-                              }}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </CardHeader>
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </CardHeader>
+                <Link to={`/workouts/${workout.id}`}>
                   <CardContent>
                     <p className="text-sm text-muted-foreground">
                       Updated {new Date(workout.updated_at).toLocaleDateString()}
